@@ -1,0 +1,88 @@
+---
+import db from '../../../lib/turso';
+
+// Proteger el endpoint
+if (!Astro.cookies.has('session')) {
+  return new Response("No autorizado", { status: 401 });
+}
+
+if (Astro.request.method !== 'POST') {
+    return new Response('Método no permitido', { status: 405 });
+}
+
+const formData = await Astro.request.formData();
+const id = formData.get('id')?.toString(); // Estará presente en las actualizaciones
+const isNew = !id;
+
+const tripData = {
+    title: formData.get('title')?.toString(),
+    url: formData.get('url')?.toString(),
+    slogan: formData.get('slogan')?.toString() || null,
+    price: formData.get('price')?.toString(),
+    days: formData.get('days')?.toString(),
+    imageUrl: formData.get('imageUrl')?.toString(),
+    locality_id: formData.get('locality_id')?.toString(),
+    departure_id: formData.get('departure_id')?.toString(),
+    travel_type: formData.get('travel_type')?.toString(),
+    season_name: formData.get('season_name')?.toString() || null,
+    season_year: formData.get('season_year') ? parseInt(formData.get('season_year').toString()) : null,
+};
+
+// Obtener las etiquetas seleccionadas del formulario
+const selectedTagNames = formData.getAll('tags').map(tag => tag.toString());
+
+try {
+    let tripId = id;
+
+    if (isNew) {
+        // --- Crear un nuevo viaje ---
+        const result = await db.execute({
+            sql: `
+                INSERT INTO trips (title, url, slogan, price, days, imageUrl, locality_id, departure_id, travel_type, season_name, season_year)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                RETURNING id;
+            `,
+            args: Object.values(tripData)
+        });
+        tripId = result.rows[0].id.toString();
+    } else {
+        // --- Actualizar un viaje existente ---
+        await db.execute({
+            sql: `
+                UPDATE trips SET
+                    title = ?, url = ?, slogan = ?, price = ?, days = ?, imageUrl = ?,
+                    locality_id = ?, departure_id = ?, travel_type = ?, season_name = ?,
+                    season_year = ?
+                WHERE id = ?
+            `,
+            args: [...Object.values(tripData), tripId]
+        });
+    }
+
+    // --- Manejar Etiquetas ---
+    // 1. Obtener los IDs de las etiquetas seleccionadas
+    const { rows: allTags } = await db.execute("SELECT id, name FROM tags");
+    const selectedTagIds = allTags
+        .filter((tag: any) => selectedTagNames.includes(tag.name))
+        .map((tag: any) => tag.id);
+
+    // 2. Actualizar las etiquetas en una transacción
+    const batchStatements = [
+        // Primero, eliminar todas las etiquetas existentes para este viaje
+        { sql: "DELETE FROM trip_tags WHERE trip_id = ?", args: [tripId] }
+    ];
+
+    // Luego, añadir las nuevas etiquetas
+    for (const tagId of selectedTagIds) {
+        batchStatements.push({ sql: "INSERT INTO trip_tags (trip_id, tag_id) VALUES (?, ?)", args: [tripId, tagId] });
+    }
+
+    await db.batch(batchStatements, 'write');
+
+    return Astro.redirect('/admin?success=true');
+
+} catch (e) {
+    console.error(e);
+    return new Response("Error al guardar el viaje: " + (e as Error).message, { status: 500 });
+}
+---

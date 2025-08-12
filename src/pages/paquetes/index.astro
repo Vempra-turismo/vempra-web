@@ -1,0 +1,341 @@
+---
+// src/pages/paquetes/index.astro
+import Layout from '../../layouts/Layout.astro';
+import TripCard from '../../components/TripCard.astro';
+import db from '../../lib/turso';
+
+// 1. Obtener todos los viajes con sus datos asociados
+const { rows: trips } = await db.execute({
+    sql: `
+        SELECT 
+            t.id, t.title, t.slogan, t.url, t.price, t.days, t.imageUrl, t.travel_type, t.season_name, t.season_year,
+            c.name as country_name, c.url as country_url,
+            d.name as departure_name, d.url as departure_url,
+            l.url as locality_url,
+            GROUP_CONCAT(tags.name) as tag_names
+        FROM trips t
+        LEFT JOIN localities l ON t.locality_id = l.id
+        LEFT JOIN countries c ON l.country_id = c.id
+        LEFT JOIN departures d ON t.departure_id = d.id
+        LEFT JOIN trip_tags tt ON t.id = tt.trip_id
+        LEFT JOIN tags ON tt.tag_id = tags.id
+        GROUP BY t.id
+        ORDER BY t.id DESC
+    `,
+    args: []
+});
+
+// 2. Obtener todas las categorías para los filtros
+const { rows: countries } = await db.execute("SELECT id, name, url FROM countries WHERE url IS NOT NULL AND url <> '' ORDER BY name");
+const { rows: localities } = await db.execute("SELECT name, url, country_id FROM localities WHERE url IS NOT NULL AND url <> '' ORDER BY name");
+const { rows: departures } = await db.execute("SELECT name, url FROM departures WHERE url IS NOT NULL AND url <> '' ORDER BY name");
+
+// Separar la etiqueta "Promocion" de las demás para un tratamiento especial
+const { rows: allTags } = await db.execute("SELECT name FROM tags ORDER BY name");
+const promoTagExists = allTags.some((tag: any) => tag.name === 'Promocion');
+const otherTags = allTags.filter((tag: any) => tag.name !== 'Promocion');
+
+// Obtener temporadas únicas de los viajes existentes
+const { rows: seasonsResult } = await db.execute("SELECT DISTINCT season_name, season_year FROM trips WHERE season_name IS NOT NULL AND season_name != '' ORDER BY season_year DESC, season_name ASC");
+const seasons = seasonsResult.map(s => `${s.season_name} ${s.season_year}`);
+
+// Crear una estructura jerárquica para el filtro de destinos
+const destinations = countries.map((country: any) => ({
+    ...country,
+    localities: localities.filter((l: any) => l.country_id === country.id)
+}));
+
+// Tipos de viaje (hardcoded por ahora, como en el admin)
+const travelTypes = ['Grupal', 'Personalizado'];
+
+// Convertir los datos de los viajes a un formato que el script pueda usar fácilmente
+const tripsData = trips.map((trip: any) => ({
+    ...trip,
+    tags: trip.tag_names ? trip.tag_names.split(',') : [],
+    season: trip.season_name ? `${trip.season_name} ${trip.season_year}` : null,
+    locality_url: trip.locality_url || ''
+}));
+---
+
+<Layout 
+    title="Paquetes de Viaje | Vempra Viajes"
+    description="Explora todos nuestros paquetes de viaje. Filtra por destino, tipo de viaje, temporada y más para encontrar tu próxima aventura."
+>
+    <main class="pt-32 bg-gray-50">
+        <div class="container mx-auto px-4 py-8">
+            <div class="lg:grid lg:grid-cols-4 lg:gap-8">
+                <!-- Columna de Filtros (Sidebar) -->
+                <aside class="lg:col-span-1 mb-8 lg:mb-0">
+                    <div class="sticky top-28 p-6 bg-white rounded-xl shadow-md">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-2xl font-bold text-primary">Filtros</h2>
+                            <button id="reset-filters-btn" class="text-sm text-gray-500 hover:text-primary hover:underline">Limpiar</button>
+                        </div>
+                        
+                        <!-- Filtro de Búsqueda por Texto -->
+                        <div class="mb-6">
+                            <label for="search-filter" class="font-semibold block mb-2 text-gray-700">Buscar por nombre</label>
+                            <div class="relative">
+                                <input type="text" id="search-filter" placeholder="Ej: Perú Mágico" class="w-full pl-10 pr-4 py-2 border rounded-lg bg-gray-50 focus:ring-primary focus:border-primary">
+                                <!-- Icono de Lupa (SVG en línea) -->
+                                <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5l-1.5 1.5l-5-5v-.79l-.27-.27A6.516 6.516 0 0 1 9.5 16A6.5 6.5 0 0 1 3 9.5A6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14S14 12 14 9.5S12 5 9.5 5"/>
+                                </svg>
+                            </div>
+                        </div>
+
+                        <!-- Filtro por País -->
+                        <div class="mb-6">
+                            <label for="country-filter" class="font-semibold block mb-2 text-gray-700">País</label>
+                            <select id="country-filter" class="w-full p-2 border rounded-lg bg-gray-50 focus:ring-primary focus:border-primary">
+                                <option value="">Todos los países</option>
+                                {countries.map((country: any) => (
+                                    <option value={country.url}>{country.name}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <!-- Filtro por Localidad (dependiente del país) -->
+                        <div id="locality-filter-container" class="mb-6 hidden">
+                            <label for="locality-filter" class="font-semibold block mb-2 text-gray-700">Ciudades / Zonas</label>
+                            <select id="locality-filter" class="w-full p-2 border rounded-lg bg-gray-50 focus:ring-primary focus:border-primary" disabled>
+                                <option value="">Todas</option>
+                            </select>
+                        </div>
+
+                        <!-- Filtro por Tipo de Viaje -->
+                        <div class="mb-6">
+                            <label for="travel-type-filter" class="font-semibold block mb-2 text-gray-700">Viajá a tu manera</label>
+                            <select id="travel-type-filter" class="w-full p-2 border rounded-lg bg-gray-50 focus:ring-primary focus:border-primary">
+                                <option value="">Todos los tipos</option>
+                                {travelTypes.map(type => (
+                                    <option value={type}>{type}</option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <!-- Filtro por Promoción -->
+                        {promoTagExists && (
+                            <div class="mb-6 p-3 bg-red-50 border-l-4 border-red-500 rounded-r-lg">
+                                <label class="flex items-center space-x-3 cursor-pointer font-bold text-red-700">
+                                    <input type="checkbox" class="tag-filter form-checkbox rounded text-red-600 focus:ring-red-500 h-5 w-5" value="Promocion">
+                                    <span>Ver solo promociones</span>
+                                </label>
+                            </div>
+                        )}
+
+                        <!-- Filtro por Temáticas -->
+                        <div class="mb-6">
+                            <h3 class="font-semibold mb-2 text-gray-700">Temáticas</h3>
+                            <div class="space-y-2 max-h-48 overflow-y-auto pr-2">
+                                {otherTags.map((tag: any) => (
+                                    <label class="flex items-center space-x-2 cursor-pointer">
+                                        <input type="checkbox" class="tag-filter form-checkbox rounded text-primary focus:ring-primary" value={tag.name}>
+                                        <span>{tag.name}</span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+
+                        <!-- Filtro por Salida -->
+                        <div class="mb-6">
+                            <label for="salida-filter" class="font-semibold block mb-2 text-gray-700">Salida desde</label>
+                            {departures.length > 0 ? (
+                                <select id="salida-filter" class="w-full p-2 border rounded-lg bg-gray-50 focus:ring-primary focus:border-primary">
+                                    <option value="">Todas</option>
+                                    {departures.map((dep: any) => <option value={dep.url}>{dep.name}</option>)}
+                                </select>
+                            ) : (
+                                <select id="salida-filter" class="w-full p-2 border rounded-lg bg-gray-200 text-gray-500" disabled>
+                                    <option value="">No hay salidas disponibles</option>
+                                </select>
+                            )}
+                        </div>
+
+                        <!-- Filtro por Temporada -->
+                        <div class="mb-6">
+                            <label for="temporada-filter" class="font-semibold block mb-2 text-gray-700">Temporada</label>
+                            <select id="temporada-filter" class="w-full p-2 border rounded-lg bg-gray-50 focus:ring-primary focus:border-primary">
+                                <option value="">Todas</option>
+                                {seasons.map(season => <option value={season}>{season}</option>)}
+                            </select>
+                        </div>
+                    </div>
+                </aside>
+
+                <!-- Columna de Resultados -->
+                <div class="lg:col-span-3">
+                    <div class="flex justify-between items-baseline mb-6">
+                        <h2 class="text-3xl font-bold text-gray-800">Paquetes de Viaje</h2>
+                        <p id="results-counter" class="text-gray-600 font-medium"></p>
+                    </div>
+                    <div id="trips-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                        {tripsData.map((trip: any) => (
+                            <div class="trip-card" 
+                                data-title={trip.title.toLowerCase()}
+                                data-country-url={trip.country_url || ''}
+                                data-locality-url={trip.locality_url || ''}
+                                data-departure-url={trip.departure_url || ''}
+                                data-travel-type={trip.travel_type || ''}
+                                data-season={trip.season || ''}
+                                data-tags={trip.tags.join(',').toLowerCase()}
+                            >
+                                <TripCard trip={trip} />
+                            </div>
+                        ))}
+                    </div>
+                    <div id="no-results" class="hidden text-center py-16">
+                        <!-- Icono de No Resultados (SVG en línea) -->
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-16 h-16 mx-auto text-gray-400 mb-4" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 0 0 1.48-5.34c-.47-2.78-2.79-5-5.59-5.34a6.505 6.505 0 0 0-7.27 7.27c.34 2.8 2.56 5.12 5.34 5.59a6.5 6.5 0 0 0 5.34-1.48l.27.28v.79l4.25 4.25l1.5-1.5zm-6 0C7 14 5 12 5 9.5S7 5 9.5 5S14 7 14 9.5S12 14 9.5 14m-2.5-4h5v2h-5z"/>
+                        </svg>
+                        <h3 class="text-xl font-semibold text-gray-700">No se encontraron viajes</h3>
+                        <p class="text-gray-500 mt-2">Intenta ajustar tus filtros o limpiarlos para ver todos nuestros paquetes.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</Layout>
+
+<script define:vars={{ tripsData, destinations }}>
+    function setupTripFilters() {
+        const searchInput = document.getElementById('search-filter');
+        const countrySelect = document.getElementById('country-filter');
+        const localitySelect = document.getElementById('locality-filter');
+        const localityContainer = document.getElementById('locality-filter-container');
+        const travelTypeSelect = document.getElementById('travel-type-filter');
+        const salidaSelect = document.getElementById('salida-filter');
+        const temporadaSelect = document.getElementById('temporada-filter');
+        const tagCheckboxes = document.querySelectorAll('.tag-filter');
+        const tripsContainer = document.getElementById('trips-container');
+        const allTripCards = tripsContainer ? Array.from(tripsContainer.querySelectorAll('.trip-card')) : [];
+        const noResultsDiv = document.getElementById('no-results');
+        const resultsCounter = document.getElementById('results-counter');
+        const resetBtn = document.getElementById('reset-filters-btn');
+
+        function applyFilters() {
+            const searchTerm = searchInput.value.toLowerCase();
+            const selectedCountry = countrySelect.value;
+            const selectedLocality = localitySelect.value;
+            const selectedType = travelTypeSelect.value;
+            const selectedSalida = salidaSelect.value;
+            const selectedTemporada = temporadaSelect.value;
+            const selectedTags = Array.from(document.querySelectorAll('.tag-filter:checked')).map(cb => cb.value);
+
+            let visibleCount = 0;
+
+            allTripCards.forEach(card => {
+                const titleMatch = card.dataset.title.includes(searchTerm);
+                const countryMatch = !selectedCountry || card.dataset.countryUrl === selectedCountry;
+                const localityMatch = !selectedLocality || card.dataset.localityUrl === selectedLocality;
+                const salidaMatch = !selectedSalida || card.dataset.departureUrl === selectedSalida;
+                const temporadaMatch = !selectedTemporada || card.dataset.season === selectedTemporada;
+                const typeMatch = !selectedType || card.dataset.travelType === selectedType;
+                const tagsMatch = selectedTags.length === 0 || selectedTags.every(tag => card.dataset.tags.includes(tag.toLowerCase()));
+                
+                if (titleMatch && countryMatch && localityMatch && salidaMatch && temporadaMatch && typeMatch && tagsMatch) {
+                    card.style.display = 'block';
+                    visibleCount++;
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+
+            noResultsDiv.style.display = visibleCount === 0 ? 'block' : 'none';
+            if (resultsCounter) {
+                if (visibleCount > 0) {
+                    resultsCounter.textContent = `${visibleCount} viaje${visibleCount > 1 ? 's' : ''} encontrado${visibleCount > 1 ? 's' : ''}`;
+                } else {
+                    resultsCounter.textContent = '';
+                }
+            }
+        }
+
+        function handleCountryChange(shouldApplyFilters = true) {
+            const selectedCountryUrl = countrySelect.value;
+            localitySelect.value = ''; // Reset locality
+            
+            if (!selectedCountryUrl) {
+                localityContainer.classList.add('hidden');
+                localitySelect.disabled = true;
+                localitySelect.innerHTML = '<option value="">Todas</option>';
+            } else {
+                const countryData = destinations.find(d => d.url === selectedCountryUrl);
+                if (countryData && countryData.localities.length > 0) {
+                    localitySelect.innerHTML = '<option value="">Todas en ' + countryData.name + '</option>';
+                    countryData.localities.forEach(loc => {
+                        const option = document.createElement('option');
+                        option.value = loc.url;
+                        option.textContent = loc.name;
+                        localitySelect.appendChild(option);
+                    });
+                    localityContainer.classList.remove('hidden');
+                    localitySelect.disabled = false;
+                } else {
+                    localityContainer.classList.add('hidden');
+                    localitySelect.disabled = true;
+                    localitySelect.innerHTML = '<option value="">Todas</option>';
+                }
+            }
+            if (shouldApplyFilters) applyFilters();
+        }
+
+        function setFiltersFromUrl() {
+            const params = new URLSearchParams(window.location.search);
+            
+            if (params.has('destino')) {
+                const [type, value] = params.get('destino').split(':');
+                if (type === 'locality') {
+                    const countryOfLocality = destinations.find(c => c.localities.some(l => l.url === value));
+                    if (countryOfLocality) {
+                        countrySelect.value = countryOfLocality.url;
+                        handleCountryChange(false); // Populate localities without filtering yet
+                        localitySelect.value = value;
+                    }
+                }
+            }
+            if (params.has('salida')) salidaSelect.value = params.get('salida');
+            if (params.has('temporada')) temporadaSelect.value = decodeURIComponent(params.get('temporada'));
+            if (params.has('tipo')) travelTypeSelect.value = params.get('tipo');
+            if (params.has('tag')) {
+                const tagName = params.get('tag');
+                const tagCheckbox = document.querySelector(`.tag-filter[value="${tagName}"]`);
+                if (tagCheckbox) tagCheckbox.checked = true;
+            }
+            
+            applyFilters();
+        }
+
+        function resetFilters() {
+            searchInput.value = '';
+            countrySelect.value = '';
+            salidaSelect.value = '';
+            temporadaSelect.value = '';
+            travelTypeSelect.value = '';
+            handleCountryChange(false); // Reset locality dropdown
+
+            document.querySelectorAll('.tag-filter:checked').forEach(cb => cb.checked = false);
+            
+            const url = new URL(window.location);
+            url.search = '';
+            window.history.pushState({}, '', url);
+
+            applyFilters();
+        }
+
+        // Event Listeners
+        [searchInput, countrySelect, localitySelect, travelTypeSelect, salidaSelect, temporadaSelect].forEach(el => {
+            el.addEventListener('input', applyFilters);
+            el.addEventListener('change', applyFilters);
+        });
+        tagCheckboxes.forEach(cb => cb.addEventListener('change', applyFilters));
+        countrySelect.addEventListener('change', () => handleCountryChange());
+        resetBtn.addEventListener('click', resetFilters);
+
+        setFiltersFromUrl();
+    }
+
+    document.addEventListener('astro:page-load', setupTripFilters);
+    setupTripFilters();
+</script>

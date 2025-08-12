@@ -1,0 +1,196 @@
+---
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import { ViewTransitions } from 'astro:transitions';
+
+interface Props {
+	title: string;
+	description: string;
+	image?: string;
+	type?: 'website' | 'article';
+}
+
+const { 
+	title, 
+	description, 
+	image = '/default-social-image.png', // Es buena práctica tener una imagen por defecto
+	type = 'website' 
+} = Astro.props;
+
+// Construimos la URL completa de la imagen para las etiquetas sociales
+const socialImageUrl = new URL(image, Astro.url.origin).href;
+const canonicalUrl = Astro.url.href;
+
+const navLinks = [
+  { text: 'Paquetes', url: '/paquetes' },
+  { text: 'Destinos', url: '/destinos' },
+  { text: 'Sobre Nosotros', url: '/nosotros' },
+  { text: 'Blog', url: '/blog' },
+  { text: 'Contacto', url: '/contacto' },
+];
+---
+<!doctype html>
+<html lang="es" class="scroll-smooth">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width" />
+		<meta name="generator" content={Astro.generator} />
+		
+		<!-- SEO y Metadatos Clave -->
+		<title>{title}</title>
+		<meta name="description" content={description} />
+		<link rel="canonical" href={canonicalUrl} />
+
+		<!-- Favicon -->
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+		<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+		<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+		<link rel="manifest" href="/site.webmanifest">
+		<meta name="msapplication-TileColor" content="#da532c">
+		<meta name="theme-color" content="#ffffff">
+
+		<!-- Open Graph (Facebook, LinkedIn, etc.) -->
+		<meta property="og:title" content={title} />
+		<meta property="og:description" content={description} />
+		<meta property="og:url" content={canonicalUrl} />
+		<meta property="og:image" content={socialImageUrl} />
+		<meta property="og:type" content={type} />
+		<meta property="og:site_name" content="Vempra Viajes" />
+		<meta property="og:locale" content="es_ES" />
+
+		<!-- Twitter Card -->
+		<meta name="twitter:card" content="summary_large_image" />
+		<meta name="twitter:title" content={title} />
+		<meta name="twitter:description" content={description} />
+		<meta name="twitter:image" content={socialImageUrl} />
+
+		<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
+		<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+		<ViewTransitions />
+		<slot name="head" />
+	</head>
+	<body class="bg-background-white text-text-main flex flex-col min-h-screen">
+		<Header navLinks={navLinks} />		
+		<main class="flex-grow min-h-screen">
+			<slot /> <!-- Aquí se insertará el contenido principal de cada página -->
+		</main>
+		<Footer navLinks={navLinks} />
+
+		<!-- === INICIO: Indicador de Carga de Navegación === -->
+		<div id="navigation-loader" class="fixed inset-0 bg-white/70 backdrop-blur-sm z-[9999] flex items-center justify-center transition-opacity duration-300 pointer-events-none opacity-0">
+			<div class="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+		</div>
+		<!-- === FIN: Indicador de Carga de Navegación === -->
+
+		<script is:inline>
+    // Unifica todos los manejadores de carga en una sola función
+    function setupLoadingIndicators() {
+        // --- 1. Indicador para botones de submit en formularios ---
+        document.body.addEventListener('submit', (event) => {
+            const form = event.target;
+            if (form instanceof HTMLFormElement && form.hasAttribute('data-form-loading')) {
+                const submitButton = form.querySelector('button[type="submit"]');
+                if (submitButton) {
+                    submitButton.disabled = true;
+                    if (!submitButton.dataset.originalContent) {
+                        submitButton.dataset.originalContent = submitButton.innerHTML;
+                    }
+                    submitButton.innerHTML = `<svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>Cargando...`;
+                }
+            }
+        }, true);
+
+        // --- 2. Indicador para enlaces de navegación ---
+        document.body.addEventListener('click', (event) => {
+            const link = event.target.closest('a');
+            if (!link || !link.href || link.origin !== window.location.origin || link.target === '_blank' || link.hasAttribute('download') || link.href.includes('#')) {
+                return;
+            }
+
+            document.body.classList.add('is-navigating');
+
+            if (link.hasAttribute('data-link-loading')) {
+                link.style.pointerEvents = 'none';
+                link.classList.add('opacity-75', 'cursor-wait');
+                if (!link.dataset.originalContent) {
+                    link.dataset.originalContent = link.innerHTML;
+                }
+                link.innerHTML = `
+                    <span class="inline-flex items-center justify-center">
+                        <svg class="animate-spin h-5 w-5 text-current" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                    </span>`;
+            }
+        });
+
+        // --- 3. Restaurar estado de botones y enlaces ---
+        const restoreButtonsAndLinks = () => {
+            document.body.classList.remove('is-navigating');
+            document.querySelectorAll('button[type="submit"][data-original-content]').forEach(button => {
+                button.innerHTML = button.dataset.originalContent;
+                button.disabled = false;
+            });
+            document.querySelectorAll('a[data-link-loading][data-original-content]').forEach(link => {
+                link.innerHTML = link.dataset.originalContent;
+                link.style.pointerEvents = 'auto';
+                link.classList.remove('opacity-75', 'cursor-wait');
+            });
+        };
+
+        document.addEventListener('astro:before-swap', restoreButtonsAndLinks);
+        window.addEventListener('pageshow', (event) => {
+            if (event.persisted) {
+                restoreButtonsAndLinks();
+            }
+        });
+    }
+
+    document.addEventListener('astro:page-load', setupLoadingIndicators);
+    setupLoadingIndicators();
+		</script>
+	</body>
+</html>
+<style is:global>
+	:root {
+		/* Mapeamos tus colores oklch a los nuevos nombres del diseño */
+		--primary-color: oklch(62.3% .214 259.815);      /* Mapeado de --primary */
+		--secondary-color: oklch(37.2% .044 257.287);   /* Mapeado de un color oscuro para contraste */
+		--background-color: oklch(96.7% .003 264.542); /* Mapeado de --background-white */
+		--text-primary: oklch(27.8% .033 256.848);     /* Mapeado de --text-main */
+		--text-secondary: oklch(44.6% .03 256.802);    /* Mapeado de un gris intermedio */
+		--white-color: #FFFFFF;
+	}
+	body {
+		font-family: 'Montserrat', sans-serif;
+		background-color: var(--background-color);
+		color: var(--text-primary);
+		-webkit-font-smoothing: antialiased;
+		text-rendering: optimizeLegibility;
+	}
+	h1, h2, h3, h4, h5, h6 {
+		font-family: 'Playfair Display', serif;
+	}
+	.fade-in {
+		opacity: 0;
+		animation: fadeInAnimation 1s ease-in-out forwards;
+	}
+	.fade-in-up {
+		opacity: 0;
+		transform: translateY(20px);
+		animation: fadeInUpAnimation 0.8s ease-in-out forwards;
+	}
+	@keyframes fadeInAnimation {
+		from { opacity: 0; }
+		to { opacity: 1; }
+	}
+	@keyframes fadeInUpAnimation {
+		from { opacity: 0; transform: translateY(20px); }
+		to { opacity: 1; transform: translateY(0); }
+	}
+	.hero-title { animation-delay: 0.2s; }
+	.hero-text { animation-delay: 0.4s; }
+	.hero-button { animation-delay: 0.6s; }
+</style>

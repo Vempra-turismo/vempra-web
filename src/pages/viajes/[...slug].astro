@@ -1,0 +1,518 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import db from '../../lib/turso';
+ 
+// Se indica a Astro que esta página se debe renderizar en el servidor en cada solicitud.
+export const prerender = false;
+ 
+const { slug } = Astro.params;
+ 
+// Se obtiene la información del viaje directamente de la base de datos en cada visita.
+const result = await db.execute({
+  sql: `
+    SELECT 
+      t.*, 
+      c.name as country_name, c.url as country_url,
+      l.name as locality_name, l.url as locality_url,
+      d.name as departure_name, d.url as departure_url,
+      GROUP_CONCAT(tags.name) as tag_names
+    FROM trips t
+    LEFT JOIN localities l ON t.locality_id = l.id
+    LEFT JOIN countries c ON l.country_id = c.id
+    LEFT JOIN departures d ON t.departure_id = d.id
+    LEFT JOIN trip_tags tt ON t.id = tt.trip_id
+    LEFT JOIN tags ON tt.tag_id = tags.id
+    WHERE t.url = ?
+    GROUP BY t.id
+  `,
+  args: [slug],
+});
+ 
+if (result.rows.length === 0) {
+  return new Response(null, { status: 404, statusText: 'Not Found' });
+}
+ 
+const trip: any = result.rows[0];
+const tags = trip.tag_names ? trip.tag_names.split(',') : [];
+
+// --- Obtener las imágenes adicionales ---
+const imagesResult = await db.execute({
+    sql: "SELECT imageUrl FROM trip_images WHERE trip_id = ?",
+    args: [trip.id]
+});
+const additionalImages = imagesResult.rows.map(row => row.imageUrl);
+
+// --- Combinar todas las imágenes para la galería ---
+const galleryImages = [trip.imageUrl, ...additionalImages];
+
+// --- Parsear el itinerario JSON ---
+let itineraryData = [];
+try {
+    itineraryData = JSON.parse(trip.itinerary || '[]');
+} catch (e) {
+    console.error("Itinerario inválido, no es un JSON válido:", trip.itinerary);
+}
+
+// --- Parsear el itinerario detallado JSON ---
+let fullItineraryData = [];
+try {
+    fullItineraryData = JSON.parse(trip.full_itinerary || '[]');
+} catch (e) {
+    console.error("Itinerario detallado inválido, no es un JSON válido:", trip.full_itinerary);
+}
+---
+<Layout 
+    title={`Vempra Viajes | ${trip.title}`}
+    description={trip.slogan || `Descubre ${trip.title}, una experiencia de viaje inolvidable de ${trip.days} diseñada por Vempra.`}
+    image={trip.imageUrl}
+>
+    <section class="text-neutral-800">
+        <section class="absolute top-0 left-0 w-full h-screen -z-10 overflow-hidden">
+            <div class="relative w-full h-full">
+                <img alt={trip.title} width="2000" height="1200" class="hidden h-full w-full object-cover xs:block" src={trip.imageUrl}/>
+                <img alt={trip.title} width="1000" height="600" class="h-full w-full xs:hidden" src={trip.imageUrl}/>
+
+                <!-- Capa de superposición para oscurecer la imagen y mejorar legibilidad del texto inferior -->
+                <div class="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent"></div>
+
+                <!-- Caja de información inferior para móvil -->
+                <div class="absolute bottom-9 left-5 text-white lg:hidden">
+                    <span class="mb-4 flex"><hr class="h-[6px] w-[49px] border-t-[1px] border-solid border-black/10 bg-[#F26E3D] opacity-100"/></span><span>Desde</span><span class="text-[23px] font-bold"> ${trip.price}</span> USD<span class="mx-2 inline-block h-[18px] border-l border-solid border-l-white pr-1"></span><span class="text-[23px]">{trip.days}</span>
+                    <p>{trip.slogan || 'Un viaje inolvidable'}</p>
+                </div>
+                
+                <!-- Caja de información inferior para desktop -->
+                <div class="absolute bottom-6 left-10 hidden max-w-[500px] text-[14px] text-white lg:block">
+                    <p style="text-shadow:-1px 1px 14px black" class="pb-2 text-[32px] font-bold leading-9">{trip.slogan || 'Un viaje inolvidable'}</p>
+                    <span>Desde</span> <span class="text-[20px] font-bold"> ${trip.price}</span> USD<span class="mx-2 my-0 inline-block h-[18px] border-l-2 border-solid border-l-white"></span><span class="text-[20px] font-bold">{trip.days}</span>
+                </div>
+
+                </div>
+        </section>
+
+        <div class="relative mt-[100vh] bg-white">
+            <!-- 1. SECCIÓN DE INFORMACIÓN GENERAL -->
+            <div class="mx-auto max-w-full px-4 sm:max-w-[540px] md:max-w-[720px] lg:max-w-[960px] xl:max-w-[1140px]">
+                <section class="py-8">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 lg:gap-8">
+                        <div class="lg:pr-10">
+                            <h2 class="font-sans text-4xl font-bold text-primary leading-tight">{trip.title}</h2>
+                            <p class="mb-3 text-[24px] font-bold xl:text-[26px]"><span>Desde </span><span class="text-cta">${trip.price} USD</span> /{trip.days}</p>
+                            <p class="text-xl text-gray-600 mb-4">{trip.slogan || 'Un viaje inolvidable'}</p>
+                            
+                            <div class="text-lg space-y-2 mb-6 border-l-4 border-cta pl-4">
+                                <p><strong>Destino:</strong> {trip.locality_name || 'N/A'}, {trip.country_name || 'N/A'}</p>
+                                {trip.departure_name && <p><strong>Salida desde:</strong> {trip.departure_name}</p>}
+                                <p><strong>Tipo de Viaje:</strong> {trip.travel_type}</p>
+                                {trip.season_name && <p><strong>Temporada:</strong> {trip.season_name} {trip.season_year}</p>}
+                                {tags.length > 0 && <div class="flex items-center gap-2 flex-wrap"><strong>Temáticas:</strong> {tags.map(tag => (
+                                    <span class="bg-blue-100 text-blue-800 text-xs font-medium mr-2 px-2.5 py-0.5 rounded-full">{tag}</span>
+                                ))}</div>}
+                            </div>
+
+                            <!-- INICIO: SECCIÓN DE PESTAÑAS -->
+                            <div id="info-tabs-container" class="mt-8">
+                                <!-- Botones de las pestañas -->
+                                <div class="border-b border-gray-200">
+                                    <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+                                        <button class="info-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-primary text-primary" data-tab="general">
+                                            Info. General
+                                        </button>
+                                        {fullItineraryData.length > 0 && (
+                                            <button class="info-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-tab="full-itinerary">
+                                                Itinerario
+                                            </button>
+                                        )}
+                                        <button class="info-tab whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300" data-tab="terms">
+                                            Bases y Cond.
+                                        </button>
+                                    </nav>
+                                </div>
+
+                                <!-- Paneles de contenido -->
+                                <div class="py-6">
+                                    <div id="tab-panel-general" class="info-tab-panel">
+                                        <div id="general-details-wrapper" class="prose max-w-none">
+                                            <div set:html={trip.generalDetails || 'No hay detalles generales disponibles.'}></div>
+                                        </div>
+                                        <button id="read-more-btn" class="text-primary font-bold mt-2 hover:underline hidden">Leer más...</button>
+                                    </div>
+                                    <div id="tab-panel-full-itinerary" class="info-tab-panel prose max-w-none hidden">
+                                        <div class="space-y-4">
+                                            {fullItineraryData.map((day, index) => (
+                                                <details class="itinerary-accordion-item bg-gray-50 rounded-lg border">
+                                                    <summary class="p-4 cursor-pointer font-semibold text-lg flex justify-between items-center">
+                                                        <span>Día {index + 1}: {day.title}</span>
+                                                        <span class="accordion-marker"></span>
+                                                    </summary>
+                                                    <div class="p-4 border-t border-gray-200">
+                                                        {day.imageUrl && <img src={day.imageUrl} alt={`Imagen del día ${index + 1}`} class="w-full h-auto rounded-md mb-4 shadow-md" />}
+                                                        <p class="whitespace-pre-wrap">{day.description || 'No hay descripción para este día.'}</p>
+                                                    </div>
+                                                </details>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div id="tab-panel-terms" class="info-tab-panel prose max-w-none hidden" set:html={trip.terms_conditions || 'No hay bases y condiciones disponibles.'} />
+                                </div>
+                            </div>
+                            <!-- FIN: SECCIÓN DE PESTAÑAS -->
+                        </div>
+                        <div>
+                            <div class="mt-8 rounded-2xl bg-fondo-color2 p-4 lg:mt-0">Nuestros tours son <span class="font-bold text-cta">Totalmente Personalizables</span> y se realizan los 365 días del año! <span class="font-bold text-primary">Nuestros expertos en viajes están felices de ayudar.</span></div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-4 gap-4 py-8">
+                        <div class="flex items-center justify-center rounded-lg border border-neutral-400 px-2 py-2 text-center text-[15px] md:py-4 lg:px-12 lg:py-4 lg:text-[16px]">Grupos Pequeños</div>
+                        <div class="flex items-center justify-center rounded-lg border border-neutral-400 px-2 py-2 text-center text-[15px] md:py-4 lg:px-12 lg:py-4 lg:text-[16px]">Servicio Experto</div>
+                        <div class="flex items-center justify-center rounded-lg border border-neutral-400 px-2 py-2 text-center text-[15px] md:py-4 lg:px-12 lg:py-4 lg:text-[16px]">Asistencia 24/7</div>
+                        <div class="flex items-center justify-center rounded-lg border border-neutral-400 px-2 py-2 text-center text-[15px] md:py-4 lg:px-12 lg:py-4 lg:text-[16px]">5,000+ Testimonios</div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- 2. SECCIÓN DE ITINERARIO INTERACTIVO (DISEÑO SUPERPUESTO) -->
+            {itineraryData.length > 0 && (
+                <section id="interactive-itinerary" class="bg-white">
+                    <div class="relative h-[95vh] w-full overflow-hidden">
+                        <!-- Capa 0: Videos -->
+                        <div id="video-container">
+                            {itineraryData.map((day, index) => (
+                                <div class:list={["destination-video absolute inset-0 z-0", { 'hidden': index !== 0 }]}>
+                                    <video 
+                                        class="media-element h-full w-full object-cover" 
+                                        loop 
+                                        playsinline 
+                                        autoplay 
+                                        muted 
+                                        src={day.videoUrl} 
+                                        itemtype="video/mp4" 
+                                        data-video-index={index}
+                                    ></video>
+                                </div>
+                            ))}
+                        </div>
+                        
+                        <!-- Capa 1: Gradiente para legibilidad del texto -->
+                        <div class="absolute inset-0 z-1 bg-gradient-to-r from-[#000000cc] via-transparent to-transparent"></div>
+
+                        <!-- Capa 2: Contenido superpuesto (Botones y Descripciones) -->
+                        <div class="absolute inset-0 z-10 flex flex-col pointer-events-none">
+                            <!-- Fila Superior: Botones (Clicables) -->
+                            <div id="day-titles-container" class="flex-none p-8 md:p-14 pointer-events-auto">
+                                <div class="flex flex-wrap justify-start gap-4">
+                                    {itineraryData.map((day, index) => (
+                                        <button 
+                                            class:list={[
+                                                "day-title text-white font-bold py-4 px-10 rounded-full transition-all duration-300 transform hover:scale-105",
+                                                index === 0 
+                                                    ? 'bg-cta shadow-lg' 
+                                                    : 'bg-gray-500 hover:bg-cta/90 hover:shadow-lg'
+                                            ]} 
+                                            data-day-index={index}
+                                        >
+                                            {day.title}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <!-- Área Inferior: Descripciones (No clicable) -->
+                            <div id="day-descriptions-container" class="relative flex-grow p-8 flex items-center">
+                                {itineraryData.map((day, index) => (
+                                    <div class:list={["day-description", { 'hidden': index !== 0 }]} data-desc-index={index}>
+                                        <div class="text-white max-w-md">
+                                            <h2 class="text-[40px] font-bold">{day.title}</h2>
+                                            <p class="text-20">Día: {index + 1}</p>
+                                            <hr class="my-6 max-w-16 border-4 border-white"/>
+                                            {day.slogan && <p class="mb-4 font-normal text-lg">{day.slogan}</p>}
+                                            {day.points && day.points.split('\n').map(point => (
+                                                <p class="mb-2 font-normal">{point}</p>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            )}
+
+            <!-- 3. Sección de la Galería de Imágenes (Slider) -->
+            {galleryImages.length > 0 && (
+                <section id="gallery-section" class="bg-gray-50 py-16 md:py-24 overflow-hidden">
+                    <div class="container mx-auto px-4 text-center">
+                        <h2 class="text-3xl md:text-4xl font-bold text-primary mb-12">Galería de Momentos</h2>
+                    </div>
+                    
+                    <div class="relative group">
+                        <!-- Visor Principal -->
+                        <div class="overflow-hidden bg-black/10">
+                            <div id="gallery-track" class="flex transition-transform duration-500 ease-in-out">
+                                {galleryImages.map((imgUrl, index) => (
+                                    <div class="gallery-slide w-full flex-shrink-0 flex justify-center items-center">
+                                        <img 
+                                            src={imgUrl} 
+                                            alt={`Imagen ${index + 1} de ${trip.title}`} 
+                                            class="w-full h-[75vh] object-contain"
+                                            loading={index > 0 ? 'lazy' : 'eager'}
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <!-- Botones Prev/Next -->
+                        <button id="prev-btn" class="absolute top-1/2 left-4 md:left-8 -translate-y-1/2 bg-white/60 hover:bg-white/90 backdrop-blur-sm text-gray-800 p-3 rounded-full shadow-lg transition-all duration-300 opacity-0 group-hover:opacity-100 z-10">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
+                        </button>
+                        <button id="next-btn" class="absolute top-1/2 right-4 md:right-8 -translate-y-1/2 bg-white/60 hover:bg-white/90 backdrop-blur-sm text-gray-800 p-3 rounded-full shadow-lg transition-all duration-300 opacity-0 group-hover:opacity-100 z-10">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+                        </button>
+                    </div>
+
+                    <!-- Navegación de Miniaturas -->
+                    <div class="w-full mt-6">
+                        <div id="thumbnail-container" class="max-w-7xl mx-auto px-4">
+                            <div class="flex space-x-3 p-2 -mx-2 overflow-x-auto">
+                                {galleryImages.map((imgUrl, index) => (
+                                    <div class="thumbnail-wrapper flex-shrink-0">
+                                        <img 
+                                            src={imgUrl} 
+                                            alt={`Miniatura ${index + 1}`} 
+                                            class:list={[
+                                                "thumbnail-image h-20 w-32 object-cover rounded-md cursor-pointer border-4 transition-all duration-200",
+                                                index === 0 ? 'border-primary' : 'border-transparent hover:border-primary/50'
+                                            ]}
+                                            data-index={index}
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            )}
+        </div>
+    </section>
+
+<style>
+    @import '../../styles/custom-trip-page.css';
+</style>
+
+<style>
+    /* Estilos para la barra de scroll de las miniaturas */
+    #thumbnail-container .overflow-x-auto::-webkit-scrollbar {
+        height: 8px;
+    }
+    #thumbnail-container .overflow-x-auto::-webkit-scrollbar-track {
+        background: #e2e8f0;
+        border-radius: 10px;
+    }
+    #thumbnail-container .overflow-x-auto::-webkit-scrollbar-thumb {
+        background: #94a3b8;
+        border-radius: 10px;
+    }
+    #thumbnail-container .overflow-x-auto::-webkit-scrollbar-thumb:hover {
+        background: #64748b;
+    }
+
+    /* Estilos para el nuevo acordeón del itinerario detallado */
+    .itinerary-accordion-item > summary {
+        list-style: none;
+    }
+    .itinerary-accordion-item > summary::-webkit-details-marker {
+        display: none;
+    }
+    .accordion-marker {
+        transition: transform 0.2s ease-in-out;
+    }
+    .accordion-marker::before { content: '▼'; font-size: 0.8em; }
+    .itinerary-accordion-item[open] > summary .accordion-marker {
+        transform: rotate(-180deg);
+    }
+
+    /* Estilos para el efecto "Leer más" */
+    #general-details-wrapper.truncated {
+        max-height: 12rem; /* ~192px. Ajusta esta altura según necesites */
+        overflow: hidden;
+        /* Un degradado sutil al final para indicar que hay más contenido */
+        -webkit-mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
+        mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
+    }
+</style>
+
+<script is:inline>
+    // Usamos is:inline para que Astro inserte este script directamente en el HTML,
+    // lo que soluciona el problema de la Política de Seguridad de Contenido (CSP).
+    function setupInteractiveItinerary() {
+        const itinerarySection = document.getElementById('interactive-itinerary');
+        if (!itinerarySection) {
+            return;
+        }
+        
+        const titlesContainer = itinerarySection.querySelector('#day-titles-container');
+        const dayTitleButtons = itinerarySection.querySelectorAll('.day-title');
+        const mediaElements = itinerarySection.querySelectorAll('.media-element');
+        const descriptionElements = itinerarySection.querySelectorAll('.day-description');
+
+        if (dayTitleButtons.length > 1) {
+            function setActiveDay(dayIndex) {
+                // Actualizar estilos de los botones
+                dayTitleButtons.forEach(button => {
+                    const isSelected = button.getAttribute('data-day-index') === dayIndex;
+                    button.classList.toggle('bg-cta', isSelected);
+                    button.classList.toggle('shadow-lg', isSelected);
+                    button.classList.toggle('bg-gray-500', !isSelected);
+                    button.classList.toggle('hover:bg-cta/90', !isSelected);
+                });
+
+                // Actualizar videos y descripciones
+                mediaElements.forEach((media, index) => {
+                    const isSelected = String(index) === dayIndex;
+                    media.closest('.destination-video')?.classList.toggle('hidden', !isSelected);
+                    
+                    if (descriptionElements[index]) {
+                        descriptionElements[index].classList.toggle('hidden', !isSelected);
+                    }
+
+                    if (isSelected) {
+                        media.currentTime = 0;
+                        media.play().catch(error => console.error("Error al reproducir video:", error));
+                    } else {
+                        media.pause();
+                    }
+                });
+            }
+
+            // Usamos delegación de eventos para mayor robustez
+            if (titlesContainer) {
+                titlesContainer.addEventListener('click', (event) => {
+                    const button = event.target.closest('.day-title');
+                    if (button) {
+                        const dayIndex = button.getAttribute('data-day-index');
+                        setActiveDay(dayIndex);
+                    }
+                });
+            }
+        }
+    }
+
+    function setupInfoTabs() {
+        const container = document.getElementById('info-tabs-container');
+        if (!container) return;
+
+        const tabs = container.querySelectorAll('.info-tab');
+        const panels = container.querySelectorAll('.info-tab-panel');
+
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                // Desactivar todos los tabs y paneles
+                tabs.forEach(t => {
+                    t.classList.remove('border-primary', 'text-primary');
+                    t.classList.add('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
+                });
+                panels.forEach(p => p.classList.add('hidden'));
+
+                // Activar el tab y panel seleccionado
+                tab.classList.add('border-primary', 'text-primary');
+                tab.classList.remove('border-transparent', 'text-gray-500', 'hover:text-gray-700', 'hover:border-gray-300');
+                
+                const tabName = tab.getAttribute('data-tab');
+                const panel = document.getElementById(`tab-panel-${tabName}`);
+                if (panel) {
+                    panel.classList.remove('hidden');
+                }
+            });
+        });
+    }
+
+    function setupGallery() {
+        const gallerySection = document.getElementById('gallery-section');
+        if (!gallerySection) return;
+
+        const track = gallerySection.querySelector('#gallery-track');
+        const slides = gallerySection.querySelectorAll('.gallery-slide');
+        const prevBtn = gallerySection.querySelector('#prev-btn');
+        const nextBtn = gallerySection.querySelector('#next-btn');
+        const thumbnails = gallerySection.querySelectorAll('.thumbnail-image');
+
+        if (!track || slides.length <= 1 || !prevBtn || !nextBtn || thumbnails.length === 0) {
+            if (prevBtn && nextBtn) {
+                prevBtn.style.display = 'none';
+                nextBtn.style.display = 'none';
+            }
+            return;
+        }
+
+        let currentIndex = 0;
+        const slideCount = slides.length;
+
+        function updateUI() {
+            track.style.transform = `translateX(-${currentIndex * 100}%)`;
+
+            thumbnails.forEach((thumb, i) => {
+                const isSelected = i === currentIndex;
+                thumb.classList.toggle('border-primary', isSelected);
+                thumb.classList.toggle('border-transparent', !isSelected);
+                if (isSelected) {
+                    thumb.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+                }
+            });
+        }
+
+        function goToSlide(index) {
+            currentIndex = (index + slideCount) % slideCount; // Permite ir de la primera a la última y viceversa
+            updateUI();
+        }
+
+        prevBtn.addEventListener('click', () => goToSlide(currentIndex - 1));
+        nextBtn.addEventListener('click', () => goToSlide(currentIndex + 1));
+
+        thumbnails.forEach(thumb => {
+            thumb.addEventListener('click', () => {
+                goToSlide(parseInt(thumb.dataset.index, 10));
+            });
+        });
+    }   
+
+    function setupReadMore() {
+        const wrapper = document.getElementById('general-details-wrapper');
+        const btn = document.getElementById('read-more-btn');
+
+        if (!wrapper || !btn) return;
+
+        // Definimos la altura máxima en 'rem' que coincide con la clase CSS '.truncated'.
+        const maxHeightInRem = 12; 
+        // La convertimos a píxeles para una comparación precisa.
+        const maxHeightInPixels = maxHeightInRem * parseFloat(getComputedStyle(document.documentElement).fontSize);
+
+        // Usamos un pequeño retraso para asegurar que el navegador ha renderizado el contenido
+        setTimeout(() => {
+            if (wrapper.scrollHeight > maxHeightInPixels) {
+                wrapper.classList.add('truncated');
+                btn.classList.remove('hidden');
+                btn.textContent = 'Leer más...';
+
+                btn.addEventListener('click', () => {
+                    const isNowTruncated = wrapper.classList.toggle('truncated');
+                    btn.textContent = isNowTruncated ? 'Leer más...' : 'Leer menos...';
+                });
+            }
+        }, 100);
+    }
+
+    // Ejecutar los scripts
+    document.addEventListener('astro:page-load', () => {
+        setupInteractiveItinerary();
+        setupInfoTabs();
+        setupGallery();
+        setupReadMore();
+    });
+    // También lo ejecutamos una vez al cargar la página por si View Transitions está desactivado
+    setupInteractiveItinerary();
+    setupInfoTabs();
+    setupGallery();
+    setupReadMore();
+</script>
+</Layout>

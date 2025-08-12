@@ -1,0 +1,70 @@
+---
+// src/pages/nosotros.astro
+import Layout from '../layouts/Layout.astro';
+import db from '../lib/turso';
+
+// Obtenemos los miembros del equipo desde la base de datos
+const { rows: staffMembers } = await db.execute("SELECT * FROM staff ORDER BY sort_order, name");
+---
+<Layout 
+    title="Sobre Nosotros | Vempra Viajes"
+    description="Conoce al equipo de apasionados por los viajes que está detrás de Vempra, listos para diseñar tu próxima gran aventura."
+>
+    <main class="pt-24 bg-gray-50">
+        <section class="py-16 md:py-24">
+            <div class="container mx-auto px-6">
+                <div class="text-center max-w-3xl mx-auto">
+                    <h1 class="text-4xl md:text-5xl font-bold text-primary mb-4">Sobre Nosotros</h1>
+                    <p class="text-lg text-gray-600">
+                        Somos un equipo de apasionados por los viajes, dedicados a crear experiencias inolvidables. Nuestra misión es mostrarte el mundo de una manera auténtica y personalizada, cuidando cada detalle para que tu única preocupación sea disfrutar.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <section class="pb-16 md:pb-24">
+            <div class="container mx-auto px-6">
+                <h2 class="text-3xl md:text-4xl font-bold text-center text-secondary-color mb-12">Nuestro Equipo</h2>
+
+                <div class="max-w-4xl mx-auto space-y-12 md:space-y-16">
+                    <!-- Iteramos sobre cada miembro del equipo para crear su tarjeta -->
+                    {staffMembers.map((member: any, index) => (
+                        <div 
+                            tabindex="0"
+                            class="staff-card bg-white rounded-xl shadow-lg overflow-hidden transition-all duration-300 ease-in-out focus:outline-none md:grid md:grid-cols-5 items-center"
+                        >
+                            <!-- Contenedor de la Imagen -->
+                            <div class:list={[
+                                "md:col-span-2 h-80 md:h-full",
+                                { 'md:order-last': index % 2 !== 0 } // Alterna la posición de la imagen
+                            ]}>
+                                <img src={member.imageUrl} alt={`Foto de ${member.name}`} class="w-full h-full object-cover object-center" />
+                            </div>
+
+                            <!-- Contenedor del Texto -->
+                            <div class="md:col-span-3 p-8 md:p-10">
+                                <h3 class="text-2xl font-bold text-primary">{member.name}</h3>
+                                <p class="text-cta font-semibold mb-4">{member.position}</p>
+                                <p class="text-gray-600 leading-relaxed">{member.description}</p>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </section>
+    </main>
+</Layout>
+
+<style>
+    .staff-card {
+        /* Prepara la tarjeta para la animación */
+        transform: scale(1);
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+    /* El efecto de zoom se activa al pasar el ratón o al hacer clic/foco */
+    .staff-card:hover,
+    .staff-card:focus {
+        transform: scale(1.03);
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    }
+</style>

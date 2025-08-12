@@ -1,0 +1,31 @@
+---
+export const prerender = false;
+const isLoggedIn = Astro.cookies.has('session');
+---
+<footer class="bg-[var(--secondary-color)] text-[var(--white-color)] py-16">
+    <div class="container mx-auto px-6 text-center">
+        <h2 class="text-4xl font-bold mb-3">Vempra</h2>
+        <p class="mb-8 opacity-80 font-light tracking-wider">El viaje de sus sueños comienza con una conversación.</p>
+        <div class="flex justify-center space-x-6 mb-10">
+            <a class="opacity-80 hover:opacity-100 hover:text-[var(--primary-color)] transition-colors duration-300 transform hover:scale-110" href="#">Facebook</a>
+            <span class="opacity-50">/</span>
+            <a class="opacity-80 hover:opacity-100 hover:text-[var(--primary-color)] transition-colors duration-300 transform hover:scale-110" href="#">Instagram</a>
+            <span class="opacity-50">/</span>
+            <a class="opacity-80 hover:opacity-100 hover:text-[var(--primary-color)] transition-colors duration-300 transform hover:scale-110" href="#">Twitter</a>
+        </div>
+        <div class="text-xs opacity-60">
+            <p>&copy; {new Date().getFullYear()} Vempra Viajes. Todos los derechos reservados.</p>
+            <div class="mt-2">
+                {isLoggedIn ? (
+                    <a href="/admin" class="hover:text-white transition-colors">
+                        Panel Admin
+                    </a>
+                ) : (
+                    <a href="/login" class="hover:text-white transition-colors">
+                        Login
+                    </a>
+                )}
+            </div>
+        </div>
+    </div>
+</footer>

@@ -1,0 +1,21 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout 
+    title="¡Gracias por tu consulta! | Vempra Viajes"
+    description="Tu mensaje ha sido enviado con éxito."
+>
+    <main class="pt-32 bg-gray-50 flex items-center justify-center" style="min-height: calc(100vh - 8rem);">
+        <div class="text-center p-8">
+            <svg class="w-24 h-24 text-green-500 mx-auto mb-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            <h1 class="text-4xl font-bold text-primary mb-4">¡Mensaje Enviado!</h1>
+            <p class="text-lg text-gray-700 max-w-xl mx-auto mb-8">
+                Gracias por ponerte en contacto con nosotros. Hemos recibido tu consulta y te responderemos a la brevedad. También te hemos enviado una copia de tu mensaje a tu correo electrónico.
+            </p>
+            <a href="/paquetes" class="bg-primary hover:bg-opacity-90 text-white font-bold py-3 px-8 rounded-full transition-all duration-300 inline-block">
+                Seguir explorando viajes
+            </a>
+        </div>
+    </main>
+</Layout>

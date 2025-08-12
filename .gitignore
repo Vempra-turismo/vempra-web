@@ -1,0 +1,28 @@
+# Variables de Entorno
+# Mantiene tus claves secretas fuera del control de versiones.
+# ¡MUY IMPORTANTE PARA LA SEGURIDAD!
+.env
+.env.*
+!/.env.example
+
+# Dependencias
+# Esta carpeta puede ser muy pesada y se reinstala con `npm install`
+/node_modules
+
+# Artefactos de Build y Desarrollo
+# Carpetas generadas por Astro al construir o ejecutar en modo dev
+/dist
+/.astro
+
+# Archivos de Log
+# Generados por gestores de paquetes en caso de errores
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Archivos específicos del Sistema Operativo o Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

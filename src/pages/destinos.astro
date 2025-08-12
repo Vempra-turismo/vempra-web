@@ -1,0 +1,29 @@
+---
+import Layout from '../layouts/Layout.astro';
+import TripCard from '../components/TripCard.astro';
+import db from '../lib/turso';
+
+const { rows: trips } = await db.execute("SELECT * FROM trips ORDER BY id DESC");
+---
+<Layout title="Todos los Destinos - Vempra Viajes">
+  <section class="py-20 pt-40 bg-[var(--background-color)]">
+    <div class="container mx-auto px-6">
+      <div class="text-center mb-16">
+        <h1 class="text-4xl md:text-5xl font-bold text-[var(--secondary-color)] mb-4">
+          Todos Nuestros Destinos
+        </h1>
+        <p class="text-lg text-[var(--text-secondary)] max-w-3xl mx-auto">
+          Desde paisajes exóticos hasta ciudades vibrantes, cada uno de nuestros destinos tiene una historia que contar. ¿Cuál será la tuya?
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 justify-items-center items-stretch">
+        {
+          trips.map((trip, index) => (
+            <TripCard trip={trip} isLarge={index % 6 === 0 || index % 6 === 5} />
+          ))
+        }
+      </div>
+    </div>
+  </section>
+</Layout>

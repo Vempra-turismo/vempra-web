@@ -1,0 +1,57 @@
+---
+import { Image } from 'astro:assets';
+
+interface Props {
+  trip: {
+    id: number;
+    title: string;
+    destinations?: string;
+    days: string;
+    price: string;
+    imageUrl: string;
+    url: string;
+    tag_names?: string;
+  };
+  isLarge?: boolean;
+}
+
+const { trip, isLarge = false } = Astro.props;
+// URL simplificada y más robusta
+const url = `/viajes/${trip.url}`;
+
+const isPromo = trip.tag_names?.split(',').includes('Promocion');
+
+const containerClass = isLarge ? 'md:col-span-2 aspect-[4/3]' : 'aspect-[2/3]';
+---
+<div class={`w-full ${containerClass}`}>
+  <a href={url} class="block group h-full">
+    <div class="relative overflow-hidden rounded-xl h-full">
+
+      <!-- Overlay de gradiente -->
+      <div class="absolute inset-x-0 top-0 z-10 h-1/2 bg-gradient-to-b from-black/60 to-transparent rounded-t-xl"></div>
+      <div class="absolute inset-x-0 bottom-0 z-10 h-1/2 bg-gradient-to-t from-black/60 to-transparent rounded-b-xl"></div>
+
+      <!-- Imagen -->
+      <Image src={trip.imageUrl} alt={trip.title} width={1000} height={814} class="rounded-xl transition duration-300 group-hover:scale-105 w-full h-full object-cover" />
+
+      <!-- Contenido de texto -->
+      <div class="absolute z-20 top-0 p-4 text-white">
+        <div class="font-bold uppercase text-xl md:text-2xl leading-tight tracking-tight text-white drop-shadow-lg">
+          {trip.title}
+        </div>
+        <p class="py-2 text-xs md:text-sm">
+          <span class="mr-2 rounded-full bg-[var(--primary-color)] px-3 py-1 text-white text-xs xl:text-sm">{trip.days}</span>
+          <span>desde ${trip.price}</span>
+        </p>
+        {trip.destinations && <p class="text-xs md:text-sm max-w-xs">{trip.destinations}</p>}
+      </div>
+
+      <!-- Cinta de Promoción -->
+      {isPromo && (
+        <div class="absolute bottom-4 -right-16 z-30">
+          <div class="bg-red-600 text-white text-sm font-bold uppercase py-1 px-16 transform rotate-[-45deg] shadow-lg">Promo</div>
+        </div>
+      )}
+    </div>
+  </a>
+</div>

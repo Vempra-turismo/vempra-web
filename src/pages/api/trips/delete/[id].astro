@@ -1,0 +1,32 @@
+---
+import db from '../../../../lib/turso';
+
+// Proteger el endpoint
+if (!Astro.cookies.has('session')) {
+  return new Response("No autorizado", { status: 401 });
+}
+
+if (Astro.request.method !== 'POST') {
+    return new Response('Método no permitido', { status: 405 });
+}
+
+const { id } = Astro.params;
+
+if (!id) {
+  return new Response("ID de viaje no proporcionado", { status: 400 });
+}
+
+try {
+  // Eliminar las relaciones en trip_tags y luego el viaje
+  await db.batch([
+    { sql: "DELETE FROM trip_tags WHERE trip_id = ?", args: [id] },
+    { sql: "DELETE FROM trips WHERE id = ?", args: [id] }
+  ], 'write');
+
+  return Astro.redirect('/admin');
+} catch (e) {
+  console.error(e);
+  return new Response("Error al eliminar el viaje", { status: 500 });
+}
+---
+

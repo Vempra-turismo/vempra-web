@@ -1,0 +1,67 @@
+---
+// src/pages/destinos/[slug].astro
+import Layout from '../../layouts/Layout.astro';
+import TripCard from '../../components/TripCard.astro';
+import db from '../../lib/turso';
+
+export const prerender = false;
+const { slug } = Astro.params;
+
+// 1. Encontrar el país basado en la URL
+const countryResult = await db.execute({
+  sql: "SELECT id, name FROM countries WHERE url = ? LIMIT 1",
+  args: [slug],
+});
+
+if (countryResult.rows.length === 0) {
+  return new Response(null, { status: 404, statusText: 'Destino no encontrado' });
+}
+const country = countryResult.rows[0];
+
+// 2. Obtener todos los viajes que pertenecen a las localidades de ese país
+const { rows: trips } = await db.execute({
+    sql: `
+        SELECT 
+            t.id, t.title, t.slogan, t.url, t.price, t.days, t.imageUrl, t.travel_type, t.season_name, t.season_year,
+            c.name as country_name, c.url as country_url,
+            d.name as departure_name, d.url as departure_url,
+            GROUP_CONCAT(tags.name) as tag_names
+        FROM trips t
+        LEFT JOIN localities l ON t.locality_id = l.id
+        LEFT JOIN countries c ON l.country_id = c.id
+        LEFT JOIN departures d ON t.departure_id = d.id
+        LEFT JOIN trip_tags tt ON t.id = tt.trip_id
+        LEFT JOIN tags ON tt.tag_id = tags.id
+        WHERE l.country_id = ?
+        GROUP BY t.id
+        ORDER BY t.id DESC
+    `,
+    args: [country.id]
+});
+---
+
+<Layout 
+    title={`Viajes a ${country.name} | Vempra Viajes`}
+    description={`Explora nuestros paquetes de viaje exclusivos a ${country.name}. Aventura, cultura y experiencias inolvidables te esperan.`}
+>
+    <main class="pt-24 bg-gray-50">
+        <section class="py-16 text-center">
+            <div class="container mx-auto px-6">
+                <h1 class="text-4xl md:text-5xl font-bold text-primary mb-2">Viajes a {country.name}</h1>
+                <p class="text-lg text-gray-600">Descubre todo lo que este increíble destino tiene para ofrecer.</p>
+            </div>
+        </section>
+
+        {trips.length > 0 ? (
+            <section class="container mx-auto px-6 py-12">
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8">
+                    {trips.map((trip: any) => <TripCard trip={trip} />)}
+                </div>
+            </section>
+        ) : (
+            <section class="text-center py-12">
+                <p class="text-gray-500">Actualmente no tenemos paquetes disponibles para este destino. ¡Vuelve pronto!</p>
+            </section>
+        )}
+    </main>
+</Layout>

@@ -1,0 +1,152 @@
+---
+// src/components/PromoSlider.astro
+import { Image } from 'astro:assets';
+
+interface Trip {
+  id: number;
+  title: string;
+  slogan?: string;
+  imageUrl: string;
+  url: string;
+  days: string;
+  price: string;
+}
+
+interface Props {
+  trips: Trip[];
+}
+
+const { trips } = Astro.props;
+---
+
+<div class="promo-slider-container container mx-auto px-4">
+    <div class="text-center mb-12">
+        <h2 class="text-4xl md:text-5xl font-bold text-primary mb-2">Promociones Exclusivas</h2>
+        <p class="text-lg text-gray-600 max-w-2xl mx-auto">Aprovecha estas oportunidades únicas para tu próxima gran aventura. ¡Cupos limitados!</p>
+    </div>
+
+    <div id="promo-slider" class="relative group">
+        <!-- Visor Principal -->
+        <div class="overflow-hidden rounded-2xl shadow-2xl">
+            <div id="promo-track" class="flex transition-transform duration-700 ease-in-out">
+                {trips.map((trip) => (
+                    <div class="promo-slide w-full flex-shrink-0 relative">
+                        <a href={`/viajes/${trip.url}`} class="block">
+                            <Image 
+                                src={trip.imageUrl} 
+                                alt={`Promoción: ${trip.title}`} 
+                                class="w-full h-[60vh] object-cover"
+                                width={1600}
+                                height={900}
+                            />
+                            <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
+                            <div class="absolute bottom-0 left-0 p-8 md:p-12 text-white">
+                                <h3 class="text-3xl md:text-5xl font-bold leading-tight drop-shadow-lg">{trip.title}</h3>
+                                {trip.slogan && <p class="mt-2 text-lg md:text-xl max-w-2xl drop-shadow-md">{trip.slogan}</p>}
+                                <div class="mt-4 text-lg">
+                                    <span class="bg-red-600 text-white font-bold py-1 px-3 rounded-md mr-4">OFERTA</span>
+                                    <span class="font-semibold">{trip.days}</span>
+                                    <span class="mx-2">|</span>
+                                    <span>Desde <strong>${trip.price}</strong></span>
+                                </div>
+                            </div>
+                        </a>
+                    </div>
+                ))}
+            </div>
+        </div>
+
+        <!-- Botones Prev/Next -->
+        <button id="promo-prev-btn" class="absolute top-1/2 left-4 md:left-8 -translate-y-1/2 bg-white/60 hover:bg-white/90 backdrop-blur-sm text-gray-800 p-3 rounded-full shadow-lg transition-all duration-300 opacity-0 group-hover:opacity-100 z-10">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
+        </button>
+        <button id="promo-next-btn" class="absolute top-1/2 right-4 md:right-8 -translate-y-1/2 bg-white/60 hover:bg-white/90 backdrop-blur-sm text-gray-800 p-3 rounded-full shadow-lg transition-all duration-300 opacity-0 group-hover:opacity-100 z-10">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+        </button>
+
+        <!-- Paginación (puntos) -->
+        <div id="promo-pagination" class="absolute bottom-5 left-1/2 -translate-x-1/2 flex space-x-2 z-10">
+            {trips.map((_, index) => (
+                <button 
+                    class:list={["promo-dot h-3 w-3 rounded-full transition-colors duration-300", index === 0 ? 'bg-white' : 'bg-white/50 hover:bg-white']}
+                    data-index={index}
+                ></button>
+            ))}
+        </div>
+    </div>
+</div>
+
+<script>
+    function setupPromoSlider() {
+        const slider = document.getElementById('promo-slider');
+        if (!slider) return;
+
+        const track = slider.querySelector('#promo-track') as HTMLElement;
+        const slides = slider.querySelectorAll('.promo-slide');
+        const prevBtn = slider.querySelector('#promo-prev-btn') as HTMLButtonElement;
+        const nextBtn = slider.querySelector('#promo-next-btn') as HTMLButtonElement;
+        const dots = slider.querySelectorAll('.promo-dot');
+
+        if (!track || slides.length <= 1) {
+            if(prevBtn) prevBtn.style.display = 'none';
+            if(nextBtn) nextBtn.style.display = 'none';
+            if(dots.length > 0) (dots[0].parentElement as HTMLElement).style.display = 'none';
+            return;
+        }
+
+        let currentIndex = 0;
+        const slideCount = slides.length;
+        let autoPlayInterval: number;
+
+        function updateUI() {
+            if (track) {
+                track.style.transform = `translateX(-${currentIndex * 100}%)`;
+            }
+            dots.forEach((dot, i) => {
+                dot.classList.toggle('bg-white', i === currentIndex);
+                dot.classList.toggle('bg-white/50', i !== currentIndex);
+            });
+        }
+
+        function goToSlide(index: number) {
+            currentIndex = (index + slideCount) % slideCount;
+            updateUI();
+        }
+        
+        function startAutoPlay() {
+            stopAutoPlay(); // Evita múltiples intervalos
+            autoPlayInterval = window.setInterval(() => {
+                goToSlide(currentIndex + 1);
+            }, 5000); // Cambia cada 5 segundos
+        }
+
+        function stopAutoPlay() {
+            clearInterval(autoPlayInterval);
+        }
+
+        prevBtn.addEventListener('click', () => {
+            goToSlide(currentIndex - 1);
+            stopAutoPlay();
+        });
+        nextBtn.addEventListener('click', () => {
+            goToSlide(currentIndex + 1);
+            stopAutoPlay();
+        });
+
+        dots.forEach(dot => {
+            dot.addEventListener('click', () => {
+                const index = parseInt((dot as HTMLElement).dataset.index || '0', 10);
+                goToSlide(index);
+                stopAutoPlay();
+            });
+        });
+
+        slider.addEventListener('mouseenter', stopAutoPlay);
+        slider.addEventListener('mouseleave', startAutoPlay);
+
+        startAutoPlay(); // Iniciar el carrusel automático
+    }
+
+    document.addEventListener('astro:page-load', setupPromoSlider);
+    setupPromoSlider();
+</script>

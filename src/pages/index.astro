@@ -1,0 +1,130 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { Icon } from 'astro-icon/components';
+import TripsGrid from '../components/TripsGrid.astro';
+import PromoSlider from '../components/PromoSlider.astro';
+import db from '../lib/turso';
+
+const { rows: popularTrips } = await db.execute("SELECT * FROM trips ORDER BY id DESC LIMIT 8");
+
+const { rows: promoTrips } = await db.execute({
+    sql: `
+        SELECT t.* FROM trips t
+        JOIN trip_tags tt ON t.id = tt.trip_id
+        JOIN tags ON tt.tag_id = tags.id
+        WHERE tags.name = 'Promocion'
+        ORDER BY t.id DESC
+    `,
+    args: []
+});
+---
+
+<Layout 
+	title="Vempra Viajes - El Arte de Viajar, Redefinido"
+	description="Creamos viajes que no solo lo llevan a un destino, sino que lo transforman. Experiencias únicas, diseñadas con alma y precisión para su próxima aventura."
+	image="/default-social-image.png"
+>
+	<main class="pt-[72px]"> <!-- Ajustado para la altura del header fijo en la home (4.5rem) -->
+		<section class="min-h-screen relative flex items-center bg-[var(--background-color)] overflow-hidden">
+			<div class="container mx-auto px-6 py-24 md:py-32 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+				<div class="z-10">
+					<h2 class="text-5xl md:text-7xl font-bold text-[var(--secondary-color)] leading-tight fade-in-up hero-title">El arte de viajar, <br/>redefinido.</h2>
+					<p class="mt-6 text-lg text-[var(--text-secondary)] max-w-lg fade-in-up hero-text">Creamos viajes que no solo lo llevan a un destino, sino que lo transforman. Experiencias únicas, diseñadas con alma y precisión.</p>
+					<div class="mt-10 fade-in-up hero-button">
+						<a data-link-loading class="bg-[var(--primary-color)] hover:bg-opacity-90 text-[var(--white-color)] font-bold py-4 px-10 rounded-full transition-all duration-300 inline-block transform hover:scale-105 hover:shadow-lg" href="/contacto">Comience su Viaje</a>
+					</div>
+				</div>
+				<div class="relative h-full hidden lg:block">
+					<div class="absolute -right-1/4 top-1/2 -translate-y-1/2 w-[690px] h-[920px] fade-in">
+						<img alt="Viajes de lujo" class="w-full h-full object-cover rounded-lg shadow-2xl transform rotate-3 transition-transform duration-500 hover:rotate-0 hover:scale-105" src="https://images.unsplash.com/photo-1501785888041-af3ef285b470?q=80&w=2070&auto=format&fit=crop"/>
+					</div>
+					<div class="absolute -left-1/4 bottom-0 w-[330px] h-[440px] fade-in" style="animation-delay: 0.3s;">
+						<img alt="Detalle de viaje" class="ml-24 w-full h-full object-cover rounded-lg shadow-2xl transform -rotate-6 transition-transform duration-500 hover:rotate-0 hover:scale-105" src="https://images.unsplash.com/photo-1534351590666-13e3e96b5017?q=80&w=2070&auto=format&fit=crop"/>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		{promoTrips.length > 0 && (
+			<section class="bg-secondary-color/5 py-16 md:py-24">
+				<PromoSlider trips={promoTrips} />
+			</section>
+		)}
+
+		<TripsGrid trips={popularTrips} />
+
+		<section class="bg-[var(--background-color)] py-20">
+			<div class="container mx-auto px-6 grid grid-cols-1 md:grid-cols-5 gap-12 items-center">
+				<div class="md:col-span-2">
+					<h3 class="text-4xl font-bold text-[var(--secondary-color)] mb-4">La Diferencia Vempra</h3>
+					<p class="text-[var(--text-secondary)] mb-8">No solo planificamos viajes, diseñamos legados de recuerdos. Nuestra filosofía se basa en tres pilares que garantizan una experiencia sin parangón.</p>
+					<a class="border border-[var(--primary-color)] text-[var(--primary-color)] hover:bg-[var(--primary-color)] hover:text-white font-bold py-3 px-8 rounded-full transition-all duration-300 transform hover:scale-105" href="/nosotros">Saber Más</a>
+				</div>
+				<div class="md:col-span-3 grid grid-cols-1 sm:grid-cols-2 gap-8">
+					<div class="bg-[var(--white-color)] p-8 rounded-lg shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-2 group">
+						<div class="bg-[var(--primary-color)]/20 text-[var(--primary-color)] rounded-full w-16 h-16 flex items-center justify-center mb-5 transition-transform duration-300 group-hover:scale-110">
+							<Icon name="mdi:clock-outline" class="w-8 h-8" />
+						</div>
+						<h4 class="text-xl font-bold text-[var(--secondary-color)] mb-2">Diseño a Medida</h4>
+						<p class="text-[var(--text-secondary)] text-sm">Cada itinerario es una obra de arte, creada para usted.</p>
+					</div>
+					<div class="bg-[var(--white-color)] p-8 rounded-lg shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-2 sm:mt-12 group">
+						<div class="bg-[var(--primary-color)]/20 text-[var(--primary-color)] rounded-full w-16 h-16 flex items-center justify-center mb-5 transition-transform duration-300 group-hover:scale-110">
+							<Icon name="mdi:key-variant" class="w-8 h-8" />
+						</div>
+						<h4 class="text-xl font-bold text-[var(--secondary-color)] mb-2">Acceso Exclusivo</h4>
+						<p class="text-[var(--text-secondary)] text-sm">Puertas que se abren solo para nuestros viajeros.</p>
+					</div>
+					<div class="bg-[var(--white-color)] p-8 rounded-lg shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-2 group">
+						<div class="bg-[var(--primary-color)]/20 text-[var(--primary-color)] rounded-full w-16 h-16 flex items-center justify-center mb-5 transition-transform duration-300 group-hover:scale-110">
+							<Icon name="mdi:check-circle-outline" class="w-8 h-8" />
+						</div>
+						<h4 class="text-xl font-bold text-[var(--secondary-color)] mb-2">Paz Mental</h4>
+						<p class="text-[var(--text-secondary)] text-sm">Nos ocupamos de todo, para que usted solo se ocupe de vivirlo.</p>
+					</div>
+				</div>
+			</div>
+		</section>
+
+		<section class="py-20 bg-[var(--white-color)]">
+			<div class="container mx-auto px-6">
+				<div class="text-center mb-16 max-w-3xl mx-auto">
+					<h3 class="text-4xl font-bold text-[var(--secondary-color)] mb-4">Lo que Dicen Nuestros Viajeros</h3>
+					<p class="text-[var(--text-secondary)] italic">"Viajar es vivir." - Hans Christian Andersen</p>
+				</div>
+				<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+					<div class="bg-[var(--background-color)] p-8 rounded-lg shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
+						<div class="flex items-center mb-4">
+							<img alt="Cliente" class="w-12 h-12 rounded-full mr-4 object-cover" src="https://randomuser.me/api/portraits/women/68.jpg"/>
+							<div>
+								<h5 class="font-bold text-[var(--secondary-color)]">Familia Torres</h5>
+								<p class="text-sm text-[var(--text-secondary)]">Viaje al Corazón del Inca</p>
+							</div>
+						</div>
+						<p class="text-[var(--text-secondary)] text-sm italic">"Vempra superó todas nuestras expectativas. La atención al detalle fue impecable. El viaje a Machu Picchu fue mágico, un recuerdo que atesoraremos por siempre."</p>
+					</div>
+					<div class="bg-[var(--background-color)] p-8 rounded-lg shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
+						<div class="flex items-center mb-4">
+							<img alt="Cliente" class="w-12 h-12 rounded-full mr-4 object-cover" src="https://randomuser.me/api/portraits/men/32.jpg"/>
+							<div>
+								<h5 class="font-bold text-[var(--secondary-color)]">Sofia & Mateo</h5>
+								<p class="text-sm text-[var(--text-secondary)]">Luna de Miel en Galápagos</p>
+							</div>
+						</div>
+						<p class="text-[var(--text-secondary)] text-sm italic">"Nuestra luna de miel fue un sueño hecho realidad. El equipo de Vempra diseñó un itinerario que combinaba a la perfección aventura y romance."</p>
+					</div>
+					<div class="bg-[var(--background-color)] p-8 rounded-lg shadow-sm transition-all duration-300 hover:shadow-xl hover:-translate-y-1">
+						<div class="flex items-center mb-4">
+							<img alt="Cliente" class="w-12 h-12 rounded-full mr-4 object-cover" src="https://randomuser.me/api/portraits/men/56.jpg"/>
+							<div>
+								<h5 class="font-bold text-[var(--secondary-color)]">Carlos Rodríguez</h5>
+								<p class="text-sm text-[var(--text-secondary)]">Aventura en el Amazonas</p>
+							</div>
+						</div>
+						<p class="text-[var(--text-secondary)] text-sm italic">"La logística para un viaje al Amazonas puede ser intimidante, pero Vempra lo hizo todo increíblemente fácil. ¡Una experiencia auténtica y sin preocupaciones!"</p>
+					</div>
+				</div>
+			</div>
+		</section>
+	</main>
+</Layout>
