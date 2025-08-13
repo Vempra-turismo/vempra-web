@@ -81,6 +81,11 @@ const navLinks = [
 		<div id="navigation-loader" class="fixed inset-0 bg-white/70 backdrop-blur-sm z-[9999] flex items-center justify-center transition-opacity duration-300 pointer-events-none opacity-0">
 			<div class="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
 		</div>
+
+		<!-- === INICIO: Botón Volver Arriba === -->
+		<button id="back-to-top" title="Volver arriba" aria-label="Volver arriba" class="hidden fixed bottom-6 right-6 bg-primary text-white w-12 h-12 flex items-center justify-center rounded-full shadow-lg hover:bg-primary-light transition-all duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary text-2xl font-bold">
+			&uarr;
+		</button>
 		<!-- === FIN: Indicador de Carga de Navegación === -->
 
 		<script is:inline>
@@ -148,8 +153,35 @@ const navLinks = [
         });
     }
 
-    document.addEventListener('astro:page-load', setupLoadingIndicators);
-    setupLoadingIndicators();
+    // --- 4. Botón para volver arriba ---
+    function setupBackToTopButton() {
+        const btn = document.getElementById('back-to-top');
+        if (!btn) return;
+
+        const scrollHandler = () => {
+            if (window.scrollY > 400) {
+                btn.classList.remove('hidden');
+            } else {
+                btn.classList.add('hidden');
+            }
+        };
+
+        btn.addEventListener('click', () => {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+
+        window.addEventListener('scroll', scrollHandler, { passive: true });
+        scrollHandler(); // Set initial state on load
+    }
+
+    // --- Función de inicialización principal ---
+    function initializePageScripts() {
+        setupLoadingIndicators();
+        setupBackToTopButton();
+    }
+
+    document.addEventListener('astro:page-load', initializePageScripts);
+    initializePageScripts();
 		</script>
 	</body>
 </html>

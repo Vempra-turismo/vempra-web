@@ -1,11 +1,6 @@
 ---
 // src/components/Header.astro
 import db from '../lib/turso';
-const { navLinks: originalNavLinks } = Astro.props;
-
-// Determinar si es la página de inicio para aplicar estilos diferentes
-const isHomePage = Astro.url.pathname === '/';
-
 // --- Obtener datos para los menús desplegables ---
 // Consultas para obtener países y sus localidades
 const { rows: countries } = await db.execute("SELECT id, name, url FROM countries WHERE url IS NOT NULL AND url <> '' ORDER BY name");
@@ -18,27 +13,19 @@ const travelTypes = [
     { name: 'Personalizado', urlParam: 'Personalizado' }
 ];
 
+const { navLinks: originalNavLinks } = Astro.props;
+
 // Crear una estructura jerárquica para el menú de destinos
 const destinations = countries.map((country: any) => ({
     ...country,
     localities: localities.filter((l: any) => l.country_id === country.id)
 }));
-
 ---
-<header 
-    id="main-header" 
-    class:list={[
-        "fixed top-0 left-0 w-full z-50 transition-all duration-300 ease-in-out",
-        // En la página de inicio, la cabecera empieza con fondo blanco y encogida
-        { 'scrolled': isHomePage }
-    ]}
-    data-is-home={isHomePage}
->
+<header id="main-header" class="fixed top-0 inset-x-0 z-50 transition-transform duration-300 ease-in-out">
     <div class="container mx-auto px-6">
-        <nav class="flex items-center justify-between h-24 transition-all duration-500 ease-in-out" id="main-nav">
+        <nav class="flex items-center justify-between h-24" id="main-nav">
             <a href="/" class="logo-link block">
-                <img src="/VEMPRA-VIAJES-LOGO-blanco.png" alt="Logo de mi empresa" class="logo-white h-20 transition-all duration-300 ease-in-out" />
-                <img src="/VEMPRA-VIAJES-LOGO.png" alt="Logo de mi empresa" class="logo-dark h-20 hidden transition-all duration-300 ease-in-out" />
+                <img src="/VEMPRA-VIAJES-LOGO.png" alt="Logo Vempra Viajes" class="h-20 transition-all duration-300 ease-in-out" />
             </a>
             <div class="hidden md:flex items-center space-x-8 nav-links">
                 <!-- Menú Desplegable: Destinos -->
@@ -120,8 +107,8 @@ const destinations = countries.map((country: any) => ({
                 ))}
             </div>
             <!-- Botón de menú móvil (para pantallas pequeñas) -->
-            <div class="md:hidden">
-                <button id="mobile-menu-button" type="button" class="p-2 inline-flex items-center justify-center rounded-md text-inherit hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white" aria-controls="mobile-menu" aria-expanded="false">
+            <div class="lg:hidden">
+                <button id="mobile-menu-button" type="button" class="p-2 inline-flex items-center justify-center rounded-md text-inherit hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white" aria-controls="side-menu-panel" aria-expanded="false">
                     <span class="sr-only">Abrir menú principal</span>
                     <!-- Icono de hamburguesa -->
                     <svg id="menu-icon-open" class="block h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
@@ -131,16 +118,17 @@ const destinations = countries.map((country: any) => ({
             </div>
         </nav>
     </div>
+</header>
 
-    <!-- Pestaña para abrir menú en Home (Desktop) cuando se hace scroll -->
-    <button id="collapsed-menu-trigger" class="fixed top-6 right-[-100px] z-[60] bg-primary hover:bg-opacity-90 text-white p-3 rounded-l-full shadow-lg transition-all duration-500 ease-in-out">
-        <span class="sr-only">Abrir menú</span>
-        <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
-    </button>
+<!-- Botón de menú colapsado (para desktop) -->
+<button id="collapsed-menu-trigger" class="fixed top-6 right-[-100px] z-[60] bg-primary hover:bg-opacity-90 text-white p-3 rounded-l-full shadow-lg transition-all duration-500 ease-in-out hidden lg:block">
+    <span class="sr-only">Abrir menú</span>
+    <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+</button>
 
-    <!-- Panel del menú (usado por móvil y por la pestaña colapsada en Home) -->
-    <div id="side-menu-panel" class="fixed top-0 right-0 md:w-96 w-full h-full bg-white shadow-2xl z-[70] transition-transform duration-500 ease-in-out">
-        <div class="p-6">
+<!-- Panel del menú (usado por móvil y por el botón colapsado) -->
+<div id="side-menu-panel" class="fixed top-0 right-0 md:w-96 w-full h-full bg-white shadow-2xl z-[70] transition-transform duration-500 ease-in-out transform translate-x-full">
+        <div class="p-6 max-h-[calc(100vh-6rem)] overflow-y-auto">
             <div class="flex justify-between items-center mb-8">
                 <h3 class="text-2xl font-bold text-primary">Menú</h3>
                 <button id="close-side-menu" class="p-2 text-gray-500 hover:text-primary">
@@ -196,62 +184,25 @@ const destinations = countries.map((country: any) => ({
                 ))}
             </div>
         </div>
-    </div>
-    <div id="side-menu-overlay" class="fixed inset-0 bg-black/40 z-[65] hidden opacity-0 transition-opacity duration-500"></div>
-</header>
+</div>
+<div id="side-menu-overlay" class="fixed inset-0 bg-black/40 z-[65] hidden opacity-0 transition-opacity duration-500"></div>
 
 <style>
-    /* --- Header mejorado con glassmorphism y transiciones suaves --- */
-    #main-header {
-        background: linear-gradient(to bottom, rgba(0,0,0,0.35), transparent);
-        backdrop-filter: blur(0px);
-        transition: all 0.5s ease;
-    }
-
-    #main-header.scrolled {
-        background: rgba(255, 255, 255, 0.85);
-        backdrop-filter: blur(10px);
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-        background-image: none; /* Ensure gradient is removed */
-    }
-
-    /* --- Colores de texto y logos --- */
-    /* Estado Inicial (transparente) */
-    #main-header .nav-links button,
-    #main-header .nav-links a,
-    #main-header #mobile-menu-button {
-        color: var(--white-color);
-        text-shadow: 1px 1px 3px rgba(0,0,0,0.4);
-    }
-    #main-header .logo-dark { display: none; }
-    #main-header .logo-white { display: block; }
-
-    /* Estado con Scroll (blanco) */
-    #main-header.scrolled .nav-links button,
-    #main-header.scrolled .nav-links a,
-    #main-header.scrolled #mobile-menu-button {
-        color: var(--text-primary);
-        text-shadow: none;
-    }
-    #main-header.scrolled .logo-dark { display: block; }
-    #main-header.scrolled .logo-white { display: none; }
-
     /* --- Animaciones de logo y navegación --- */
     .logo-link img {
         transition: transform 0.4s ease, height 0.4s ease, opacity 0.4s ease;
-    }
-    #main-header.scrolled .logo-link img {
-        height: 3.5rem; /* 56px */
-        transform: scale(0.9);
-    }
-    #main-header.scrolled #main-nav {
-        height: 4.5rem; /* 72px */
     }
 
     /* Efecto hover en enlaces y botones del nav */
     .nav-links a, .nav-links button {
         position: relative;
         transition: color 0.3s ease;
+        color: var(--text-primary);
+        text-shadow: none;
+    }
+
+    .nav-links a:hover, .nav-links button:hover {
+        color: var(--primary-color);
     }
     .nav-links a::after, .nav-links button::after {
         content: "";
@@ -265,14 +216,6 @@ const destinations = countries.map((country: any) => ({
     }
     .nav-links a:hover::after, .nav-links button:hover::after {
         width: 100%;
-    }
-    #main-header:not(.scrolled) .nav-links a:hover,
-    #main-header:not(.scrolled) .nav-links button:hover {
-        color: rgba(255, 255, 255, 0.85);
-    }
-    #main-header.scrolled .nav-links a:hover,
-    #main-header.scrolled .nav-links button:hover {
-        color: var(--primary-color);
     }
 
     /* Dropdown mejorado */
@@ -292,24 +235,17 @@ const destinations = countries.map((country: any) => ({
         @apply block px-4 py-2 text-gray-800 hover:bg-gray-100 hover:text-primary transition-colors duration-200;
     }
 
-    /* --- Estilos para colapsar header en Home --- */
-    #main-header.header-collapsed-right {
-        background: transparent;
-        box-shadow: none;
-        backdrop-filter: none;
+    /* --- Estilos para colapsar header --- */
+    #main-header.header-hidden {
+        transform: translateX(100%);
     }
-    #main-header.header-collapsed-right #main-nav {
-        transform: translateX(110%);
+    #main-header.logo-only .nav-links,
+    #main-header.logo-only .lg\\:hidden { /* Ocultar botón de menú móvil también */
         opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s ease;
     }
-    #collapsed-menu-trigger {
-        box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-        transition: all 0.4s ease, right 0.5s ease;
-    }
-    #collapsed-menu-trigger:hover {
-        transform: translateX(-4px);
-    }
-    #main-header.header-collapsed-right #collapsed-menu-trigger {
+    #collapsed-menu-trigger.visible {
         right: 1.5rem; /* 24px */
     }
 
@@ -317,22 +253,16 @@ const destinations = countries.map((country: any) => ({
     #side-menu-panel {
         background: rgba(255,255,255,0.9);
         backdrop-filter: blur(12px);
-        transform: translateX(100%);
         transition: transform 0.5s ease;
     }
-    body.side-menu-is-open {
-        overflow: hidden;
+    body.side-menu-open #side-menu-panel {
+        transform: translateX(0);
     }
-    #side-menu-overlay {
-        transition: opacity 0.5s ease;
-    }
-    body.side-menu-is-open #side-menu-overlay {
+    body.side-menu-open #side-menu-overlay {
         display: block;
         opacity: 1;
     }
-    body.side-menu-is-open #side-menu-panel {
-        transform: translateX(0);
-    }
+
     .mobile-menu-section {
         @apply px-3;
     }
@@ -356,64 +286,63 @@ const destinations = countries.map((country: any) => ({
     .mobile-menu-accordion[open] > summary .accordion-icon {
         transform: rotate(180deg);
     }
+
+</style>
+
+<style is:global>
+    #main-header {
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(10px);
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    }
+    body.side-menu-open {
+        overflow: hidden;
+    }
 </style>
 
 <script is:inline>
     function setupHeader() {
         const header = document.querySelector('#main-header');
-        if (!header) return;
-
-        const isHomePage = header.dataset.isHome === 'true';
-        const scrollThreshold = 50;
-        let lastScrollY = window.scrollY;
-
-        const handleScroll = () => {
-            const currentScrollY = window.scrollY;
-            const colorChangeThreshold = 20; // Umbral para el cambio de color/tamaño
-
-            // --- Lógica de cambio de apariencia (color y tamaño) ---
-            // En la página de inicio, ya empieza con 'scrolled', así que solo lo manejamos para las demás.
-            if (!isHomePage) {
-                if (currentScrollY > colorChangeThreshold) {
-                    header.classList.add('scrolled');
-                } else {
-                    header.classList.remove('scrolled');
-                }
-            }
-
-            // --- Lógica de colapsar/expandir (para TODAS las páginas) ---
-            // Se activa al bajar más allá de la altura de la cabecera.
-            if (currentScrollY > lastScrollY && currentScrollY > header.offsetHeight) {
-                // Scrolling down
-                if (!document.body.classList.contains('side-menu-is-open')) {
-                    header.classList.add('header-collapsed-right');
-                }
-            } else if (currentScrollY < lastScrollY) {
-                // Scrolling up
-                header.classList.remove('header-collapsed-right');
-            }
-
-            lastScrollY = currentScrollY <= 0 ? 0 : currentScrollY;
-        };
-
-        // --- Lógica para abrir/cerrar el menú lateral ---
         const mobileMenuButton = document.querySelector('#mobile-menu-button');
+        const sideMenu = document.querySelector('#side-menu-panel');
         const collapsedTrigger = document.querySelector('#collapsed-menu-trigger');
         const closeButton = document.querySelector('#close-side-menu');
         const overlay = document.querySelector('#side-menu-overlay');
 
-        const openMenu = () => {
-            document.body.classList.add('side-menu-is-open');
-        };
+        if (!header || !sideMenu || !collapsedTrigger) return;
 
-        const closeMenu = () => {
-            document.body.classList.remove('side-menu-is-open');
-        };
+        // --- Lógica para abrir/cerrar el menú lateral ---
+        const openMenu = () => document.body.classList.add('side-menu-open');
+        const closeMenu = () => document.body.classList.remove('side-menu-open');
 
-        if (mobileMenuButton) mobileMenuButton.addEventListener('click', openMenu);
-        if (collapsedTrigger) collapsedTrigger.addEventListener('click', openMenu);
-        if (closeButton) closeButton.addEventListener('click', closeMenu);
-        if (overlay) overlay.addEventListener('click', closeMenu);
+        mobileMenuButton?.addEventListener('click', openMenu);
+        collapsedTrigger.addEventListener('click', openMenu);
+        closeButton?.addEventListener('click', closeMenu);
+        overlay?.addEventListener('click', closeMenu);
+
+        // --- Lógica de Scroll ---
+        let lastScrollY = window.scrollY;
+        const handleScroll = () => {
+            const currentScrollY = window.scrollY;
+
+            if (currentScrollY > 10) {
+                if (currentScrollY > lastScrollY && currentScrollY > 150) {
+                    if (!document.body.classList.contains('side-menu-open')) {
+                        header.classList.add('header-hidden');
+                        header.classList.remove('logo-only');
+                        collapsedTrigger.classList.add('visible');
+                    }
+                } else if (currentScrollY < lastScrollY) {
+                    header.classList.remove('header-hidden');
+                    collapsedTrigger.classList.remove('visible');
+                    header.classList.add('logo-only');
+                }
+            } else {
+                header.classList.remove('header-hidden', 'logo-only');
+                collapsedTrigger.classList.remove('visible');
+            }
+            lastScrollY = currentScrollY <= 0 ? 0 : currentScrollY;
+        };
 
         window.addEventListener('scroll', handleScroll, { passive: true });
         handleScroll();
