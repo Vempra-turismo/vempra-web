@@ -5,7 +5,7 @@ export const onRequest = defineMiddleware(async ({ cookies, url, redirect }, nex
 
   // Si el usuario intenta ir a /login pero ya tiene sesión, lo mandamos a /admin
   if (pathname === '/login' && cookies.has('session')) {
-    return redirect('/admin', 302);
+    return redirect('/admin/', 302);
   }
 
   // Si intenta acceder a cualquier ruta de /admin sin sesión, lo mandamos a /login

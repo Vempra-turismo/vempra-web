@@ -13,7 +13,7 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
       secure: import.meta.env.PROD, // Solo HTTPS en producción
       maxAge: 60 * 60 * 24 * 7, // 1 semana
     });
-    return redirect('/admin', 302); // Redirige al panel de admin
+    return redirect('/admin/', 302); // Redirige al panel de admin
   }
 
   // Si es incorrecta, redirige de vuelta al login con un mensaje de error
