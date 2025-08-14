@@ -1,9 +1,9 @@
 ---
-import Layout from '../layouts/Layout.astro';
+import Layout from '@/layouts/Layout.astro';
 import { Icon } from 'astro-icon/components';
-import TripsGrid from '../components/TripsGrid.astro';
-import PromoSlider from '../components/PromoSlider.astro';
-import db from '../lib/turso';
+import TripsGrid from '@/components/TripsGrid.astro';
+import PromoSlider from '@/components/PromoSlider.astro';
+import db from '@/lib/turso';
 
 const { rows: popularTrips } = await db.execute("SELECT * FROM trips ORDER BY id DESC LIMIT 8");
 

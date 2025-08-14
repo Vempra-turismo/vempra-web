@@ -1,8 +1,8 @@
 ---
 // src/pages/paquetes/index.astro
-import Layout from '../../layouts/Layout.astro';
-import TripCard from '../../components/TripCard.astro';
-import db from '../../lib/turso';
+import Layout from '@/layouts/Layout.astro';
+import TripCard from '@/components/TripCard.astro';
+import db from '@/lib/turso';
 
 // 1. Obtener todos los viajes con sus datos asociados
 const { rows: trips } = await db.execute({

@@ -1,6 +1,6 @@
 ---
 // src/components/Header.astro
-import db from '../lib/turso';
+import db from '@/lib/turso';
 // --- Obtener datos para los menús desplegables ---
 // Consultas para obtener países y sus localidades
 const { rows: countries } = await db.execute("SELECT id, name, url FROM countries WHERE url IS NOT NULL AND url <> '' ORDER BY name");
