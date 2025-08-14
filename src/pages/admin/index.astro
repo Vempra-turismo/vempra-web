@@ -995,10 +995,10 @@ const trips = tripsResult.rows;
                 <h3 class="text-xl font-semibold text-primary mb-4">{staffToEdit ? 'Editar Miembro' : 'Añadir Nuevo Miembro'}</h3>
                 <form
                   method="POST"
-                  enctype="multipart/form-data"
-                  action={staffToEdit ? '/admin' : '/api/staff/add'}
-                  class="space-y-4">
-                  <input type="hidden" name="intent" value={staffToEdit ? 'update_staff' : ''}>
+                  enctype="multipart/form-data"                  
+                  class="space-y-4"
+                >
+                  <input type="hidden" name="intent" value={staffToEdit ? 'update_staff' : 'add_staff'}>
                   {staffToEdit && <input type="hidden" name="staff_id" value={staffToEdit.id} />}
                   <div>
                     <label for="staff_name" class="block text-sm font-medium text-gray-700">Nombre</label>
