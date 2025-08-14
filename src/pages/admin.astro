@@ -1,5 +1,5 @@
 ---
-import Layout from '../layouts/Layout.astro';
+import AdminLayout from '@/layouts/AdminLayout.astro';
 import db from '../lib/turso';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -506,16 +506,9 @@ const trips = tripsResult.rows;
 
 ---
 
-<Layout title="Administración de Viajes">
-  <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js" slot="head"></script>
-  <main class="bg-slate-50">
-    <div class="container mx-auto px-4 py-12">
-      <div class="flex justify-between items-center mb-8">
-        <h1 class="text-4xl font-bold text-primary">Administrar Viajes</h1>
-        <form action="/api/auth/logout" method="post">
-          <button type="submit" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">Cerrar Sesión</button>
-        </form>
-      </div>
+<AdminLayout title="Panel de Administración">
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js" is:inline></script>
+  <div class="container mx-auto px-4 py-12">
 
       <!-- Contenedor para mostrar mensajes de éxito o error -->
       {formMessage && (
@@ -1081,8 +1074,8 @@ const trips = tripsResult.rows;
       </div>
 
     </div>
-  </main>
-</Layout>
+  </div>
+</AdminLayout>
 
 <style>
   .sortable-header .sort-indicator::after {
