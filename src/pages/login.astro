@@ -1,11 +1,6 @@
 ---
 import Layout from '@/layouts/Layout.astro';
 
-// Si el usuario ya está logueado, lo mandamos directo al panel de admin
-if (Astro.cookies.has('session')) {
-  return Astro.redirect('/admin/');
-}
-
 // Revisa si hay un mensaje de error en la URL
 const error = Astro.url.searchParams.get('error');
 ---
