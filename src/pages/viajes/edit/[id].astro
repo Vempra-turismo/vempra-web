@@ -1,7 +1,7 @@
 ---
 // Esta página maneja tanto la creación (con id='new') como la edición de viajes.
 import AdminLayout from '@/layouts/AdminLayout.astro';
-import db from '../../../../lib/turso';
+import db from '@/lib/turso';
 
 const { id } = Astro.params;
 const isNew = id === 'new';
