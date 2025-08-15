@@ -56,9 +56,7 @@ if (Astro.request.method === 'POST') {
   };
 
   try { // Envolvemos toda la lógica en un try...catch para manejar errores de forma segura.
-    switch (intent) {
-      case 'add_update_trip':
-      default: {
+    if (intent === 'add_update_trip' || !intent) {
       const selectedTags = formData.getAll('tags').map(id => parseInt(id.toString(), 10));
 
       // --- LÓGICA DE ELIMINACIÓN DE IMÁGENES ---
@@ -168,7 +166,6 @@ if (Astro.request.method === 'POST') {
       }
       // Redirigir con mensaje de éxito
       return Astro.redirect(`/admin/viajes?success=${successParam}#trip-list`, 303);
-    }
     }
   } catch (e) {
     console.error("Ha ocurrido un error procesando el formulario:", e);
