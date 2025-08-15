@@ -8,9 +8,9 @@ import path from 'node:path';
 export const prerender = false;
 
 // --- Proteger la página ---
-(() => {if (!Astro.cookies.has('session')) {
+if (!Astro.cookies.has('session')) {
   return Astro.redirect('/login');
-}})();
+}
 
 // --- Obtener datos para los selectores del formulario ---
 const countries = (await db.execute("SELECT id, name FROM countries ORDER BY name")).rows;
