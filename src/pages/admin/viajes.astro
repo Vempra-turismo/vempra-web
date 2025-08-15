@@ -1,7 +1,20 @@
 ----
+---
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import db from '@/lib/turso';
 import fs from 'node:fs';
+import path from 'node:path';
+
+export const prerender = false;
+
+// --- Proteger la página ---
+if (!Astro.cookies.has('session')) {
+  return Astro.redirect('/login');
+}
+
+// --- Obtener datos para los selectores del formulario ---
+const countries = (await db.execute("SELECT id, name FROM countries ORDER BY name")).rows;
+const localities = (await db.execute("SELECT id, name, country_id FROM localities ORDER BY name")).rows;
 const tags = (await db.execute("SELECT id, name FROM tags ORDER BY name")).rows;
 const departures = (await db.execute("SELECT id, name FROM departures ORDER BY name")).rows;
 
@@ -10,7 +23,6 @@ let formMessage: { type: 'success' | 'error'; text: string } | null = null;
 // --- Lógica para mostrar mensajes de éxito/error desde la redirección ---
 const successMessage = Astro.url.searchParams.get('success');
 const errorMessage = Astro.url.searchParams.get('error');
-
 if (successMessage) {
     const successMap = {
         'trip_added': '¡Viaje añadido con éxito!',
@@ -25,6 +37,27 @@ if (errorMessage) {
 // --- Lógica para manejar el envío del formulario (POST) ---
 if (Astro.request.method === 'POST') {
   const formData = await Astro.request.formData();
+  const tripId = formData.get('id')?.toString();
+  const intent = formData.get('intent')?.toString();
+
+  // Extraer datos del formulario
+  const data = {
+    title: formData.get('title')?.toString(),
+    slogan: formData.get('slogan')?.toString(),
+    url: formData.get('url')?.toString(),
+    price: formData.get('price') ? parseFloat(formData.get('price').toString()) : null,
+    days: formData.get('days')?.toString(),
+    generalDetails: formData.get('generalDetails')?.toString(),
+    imageUrl: formData.get('imageUrl')?.toString(),
+    terms_conditions: formData.get('terms_conditions')?.toString(),
+    travel_type: formData.get('travel_type')?.toString(),
+    locality_id: formData.get('locality_id') ? parseInt(formData.get('locality_id').toString(), 10) : null,
+    season_year: formData.get('season_year') ? parseInt(formData.get('season_year').toString(), 10) : null,
+    season_name: formData.get('season_name')?.toString(),
+    itinerary: formData.get('itinerary')?.toString(),
+    hotels_info: formData.get('hotels_info')?.toString(),
+    flights_info: formData.get('flights_info')?.toString(),
+    full_itinerary: formData.get('full_itinerary')?.toString(),
     departure_id: formData.get('departure_id') ? parseInt(formData.get('departure_id').toString(), 10) : null,
   };
 
@@ -53,6 +86,7 @@ if (Astro.request.method === 'POST') {
       // --- LÓGICA DE SUBIDA DE VIDEOS DEL ITINERARIO ---
       const itineraryJson = formData.get('itinerary')?.toString();
       let itineraryData = itineraryJson ? JSON.parse(itineraryJson) : [];
+
       const allVideoInputs = formData.getAll('day_video_file');
       const uploadDirVideos = path.join(process.cwd(), 'public/uploads/videos');
       if (!fs.existsSync(uploadDirVideos)) fs.mkdirSync(uploadDirVideos, { recursive: true });
@@ -71,6 +105,7 @@ if (Astro.request.method === 'POST') {
       // --- LÓGICA DE SUBIDA DE IMÁGENES DEL ITINERARIO DETALLADO ---
       const fullItineraryJson = formData.get('full_itinerary')?.toString();
       let fullItineraryData = fullItineraryJson ? JSON.parse(fullItineraryJson) : [];
+
       const allImageInputs = formData.getAll('full_day_image_file');
       const uploadDirImages = path.join(process.cwd(), 'public/uploads/itinerary');
       if (!fs.existsSync(uploadDirImages)) fs.mkdirSync(uploadDirImages, { recursive: true });
@@ -153,6 +188,7 @@ let tripTags = [];
 let countryOfTripToEdit = null;
 let additionalImagesToEdit = [];
 const editId = Astro.url.searchParams.get('edit');
+
 if (editId) {
     const result = await db.execute({ sql: "SELECT * FROM trips WHERE id = ?", args: [editId] });
     if (result.rows.length > 0) {
@@ -729,4 +765,3 @@ const trips = tripsResult.rows;
   document.addEventListener('astro:page-load', initializeTripPanel);
   initializeTripPanel();
 </script>
-
