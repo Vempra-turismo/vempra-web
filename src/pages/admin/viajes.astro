@@ -66,7 +66,6 @@ if (Astro.request.method === 'POST') {
             const filename = imageUrl.substring('/uploads/'.length);
             const filePath = path.join(process.cwd(), 'public/uploads', filename);
             if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-          }
         }
         const deletePromises = imagesToDelete.map(imageUrl => db.execute({
           sql: "DELETE FROM trip_images WHERE trip_id = ? AND imageUrl = ?",
