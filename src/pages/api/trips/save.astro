@@ -1,5 +1,6 @@
 ---
 import db from '../../../lib/turso';
+import { put } from '@vercel/blob';
 
 // Proteger el endpoint
 if (!Astro.cookies.has('session')) {
@@ -11,8 +12,24 @@ if (Astro.request.method !== 'POST') {
 }
 
 const formData = await Astro.request.formData();
-const id = formData.get('id')?.toString(); // Estará presente en las actualizaciones
+const id = formData.get('id')?.toString();
 const isNew = !id;
+
+// --- Manejo de la subida de imagen ---
+const imageFile = formData.get('imageFile') as File;
+let imageUrl = formData.get('imageUrl')?.toString(); // URL existente al editar
+
+if (imageFile && imageFile.size > 0) {
+  try {
+    const blob = await put(imageFile.name, imageFile, {
+      access: 'public',
+    });
+    imageUrl = blob.url; // Usar la nueva URL de Vercel Blob
+  } catch (e) {
+    console.error("Error al subir la imagen a Vercel Blob:", e);
+    return new Response("Error al subir la imagen: " + (e as Error).message, { status: 500 });
+  }
+}
 
 const tripData = {
     title: formData.get('title')?.toString(),
@@ -20,7 +37,7 @@ const tripData = {
     slogan: formData.get('slogan')?.toString() || null,
     price: formData.get('price')?.toString(),
     days: formData.get('days')?.toString(),
-    imageUrl: formData.get('imageUrl')?.toString(),
+    imageUrl: imageUrl, // Usar la URL (nueva o existente)
     locality_id: formData.get('locality_id')?.toString(),
     departure_id: formData.get('departure_id')?.toString(),
     travel_type: formData.get('travel_type')?.toString(),
@@ -60,29 +77,28 @@ try {
     }
 
     // --- Manejar Etiquetas ---
-    // 1. Obtener los IDs de las etiquetas seleccionadas
     const { rows: allTags } = await db.execute("SELECT id, name FROM tags");
     const selectedTagIds = allTags
         .filter((tag: any) => selectedTagNames.includes(tag.name))
         .map((tag: any) => tag.id);
 
-    // 2. Actualizar las etiquetas en una transacción
     const batchStatements = [
-        // Primero, eliminar todas las etiquetas existentes para este viaje
         { sql: "DELETE FROM trip_tags WHERE trip_id = ?", args: [tripId] }
     ];
 
-    // Luego, añadir las nuevas etiquetas
     for (const tagId of selectedTagIds) {
         batchStatements.push({ sql: "INSERT INTO trip_tags (trip_id, tag_id) VALUES (?, ?)", args: [tripId, tagId] });
     }
 
-    await db.batch(batchStatements, 'write');
+    if (batchStatements.length > 1) { // Solo ejecutar si hay etiquetas para procesar
+        await db.batch(batchStatements, 'write');
+    }
 
-    return Astro.redirect('/admin?success=true');
+    return Astro.redirect('/admin/viajes?success=true');
 
 } catch (e) {
     console.error(e);
-    return new Response("Error al guardar el viaje: " + (e as Error).message, { status: 500 });
+    const errorMessage = encodeURIComponent((e as Error).message);
+    return Astro.redirect(`/admin/viajes?success=false&error=${errorMessage}`);
 }
 ---

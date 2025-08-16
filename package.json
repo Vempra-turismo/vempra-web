@@ -13,6 +13,7 @@
     "@astrojs/tailwind": "^6.0.2",
     "@astrojs/vercel": "^8.2.5",
     "@libsql/client": "^0.15.10",
+    "@vercel/blob": "^1.1.1",
     "astro": "^5.12.5",
     "astro-icon": "^1.1.5",
     "resend": "^4.7.0",

@@ -1,8 +1,6 @@
 ---
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import db from '@/lib/turso';
-import fs from 'node:fs';
-import path from 'node:path';
 
 export const prerender = false;
 
@@ -15,168 +13,20 @@ const departures = (await db.execute("SELECT id, name FROM departures ORDER BY n
 let formMessage: { type: 'success' | 'error'; text: string } | null = null;
 
 // --- Lógica para mostrar mensajes de éxito/error desde la redirección ---
-const successMessage = Astro.url.searchParams.get('success');
-const errorMessage = Astro.url.searchParams.get('error');
-if (successMessage) {
-    const successMap = {
-        'trip_added': '¡Viaje añadido con éxito!',
-        'trip_updated': '¡Viaje actualizado con éxito!',
-    };
-    if (successMap[successMessage]) formMessage = { type: 'success', text: successMap[successMessage] };
+const success = Astro.url.searchParams.get('success');
+const error = Astro.url.searchParams.get('error');
+
+if (success) {
+    formMessage = { type: 'success', text: '¡Operación completada con éxito!' };
 }
-if (errorMessage) {
-    formMessage = { type: 'error', text: decodeURIComponent(errorMessage) };
-}
-
-// --- Lógica para manejar el envío del formulario (POST) ---
-if (Astro.request.method === 'POST') {
-  const formData = await Astro.request.formData();
-  const tripId = formData.get('id')?.toString();
-  const intent = formData.get('intent')?.toString();
-
-  // Extraer datos del formulario
-  const data = {
-    title: formData.get('title')?.toString(),
-    slogan: formData.get('slogan')?.toString(),
-    url: formData.get('url')?.toString(),
-    price: formData.get('price') ? parseFloat(formData.get('price').toString()) : null,
-    days: formData.get('days')?.toString(),
-    generalDetails: formData.get('generalDetails')?.toString(),
-    imageUrl: formData.get('imageUrl')?.toString(),
-    terms_conditions: formData.get('terms_conditions')?.toString(),
-    travel_type: formData.get('travel_type')?.toString(),
-    locality_id: formData.get('locality_id') ? parseInt(formData.get('locality_id').toString(), 10) : null,
-    season_year: formData.get('season_year') ? parseInt(formData.get('season_year').toString(), 10) : null,
-    season_name: formData.get('season_name')?.toString(),
-    itinerary: formData.get('itinerary')?.toString(),
-    hotels_info: formData.get('hotels_info')?.toString(),
-    flights_info: formData.get('flights_info')?.toString(),
-    full_itinerary: formData.get('full_itinerary')?.toString(),
-    departure_id: formData.get('departure_id') ? parseInt(formData.get('departure_id').toString(), 10) : null,
-  };
-
-  try { // Envolvemos toda la lógica en un try...catch para manejar errores de forma segura.
-    if (intent === 'add_update_trip' || !intent) {
-      const selectedTags = formData.getAll('tags').map(id => parseInt(id.toString(), 10));
-
-      // --- LÓGICA DE ELIMINACIÓN DE IMÁGENES ---
-      const imagesToDelete = formData.getAll('delete_images').map(String);
-      if (imagesToDelete.length > 0 && tripId) {
-        for (const imageUrl of imagesToDelete) {
-            const filename = imageUrl.substring('/uploads/'.length);
-            const filePath = path.join(process.cwd(), 'public/uploads', filename);
-            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        }
-        const deletePromises = imagesToDelete.map(imageUrl => db.execute({
-          sql: "DELETE FROM trip_images WHERE trip_id = ? AND imageUrl = ?",
-          args: [tripId, imageUrl],
-        }));
-        await Promise.all(deletePromises);
-      }
-
-      // --- LÓGICA DE SUBIDA DE VIDEOS DEL ITINERARIO ---
-      const itineraryJson = formData.get('itinerary')?.toString();
-      let itineraryData = itineraryJson ? JSON.parse(itineraryJson) : [];
-
-      const allVideoInputs = formData.getAll('day_video_file');
-      const uploadDirVideos = path.join(process.cwd(), 'public/uploads/videos');
-      if (!fs.existsSync(uploadDirVideos)) fs.mkdirSync(uploadDirVideos, { recursive: true });
-
-      for (let i = 0; i < itineraryData.length; i++) {
-        const file = allVideoInputs[i];
-        if (file instanceof File && file.size > 0) {
-          const uniqueFilename = `${Date.now()}-${file.name.replace(/\s+/g, '_')}`;
-          const savePath = path.join(uploadDirVideos, uniqueFilename);
-          await fs.promises.writeFile(savePath, Buffer.from(await file.arrayBuffer()));
-          itineraryData[i].videoUrl = `/uploads/videos/${uniqueFilename}`;
-        }
-      }
-      data.itinerary = JSON.stringify(itineraryData);
-
-      // --- LÓGICA DE SUBIDA DE IMÁGENES DEL ITINERARIO DETALLADO ---
-      const fullItineraryJson = formData.get('full_itinerary')?.toString();
-      let fullItineraryData = fullItineraryJson ? JSON.parse(fullItineraryJson) : [];
-
-      const allImageInputs = formData.getAll('full_day_image_file');
-      const uploadDirImages = path.join(process.cwd(), 'public/uploads/itinerary');
-      if (!fs.existsSync(uploadDirImages)) fs.mkdirSync(uploadDirImages, { recursive: true });
-
-      for (let i = 0; i < fullItineraryData.length; i++) {
-        const file = allImageInputs[i];
-        if (file instanceof File && file.size > 0) {
-          const uniqueFilename = `${Date.now()}-full-${file.name.replace(/\s+/g, '_')}`;
-          const savePath = path.join(uploadDirImages, uniqueFilename);
-          await fs.promises.writeFile(savePath, Buffer.from(await file.arrayBuffer()));
-          fullItineraryData[i].imageUrl = `/uploads/itinerary/${uniqueFilename}`;
-        }
-      }
-      data.full_itinerary = JSON.stringify(fullItineraryData);
-
-      // --- LÓGICA DE SUBIDA DE NUEVAS IMÁGENES ADICIONALES ---
-      const newImageFiles = formData.getAll('additionalImages').filter(f => f instanceof File && f.size > 0);
-      const newImageUrls = [];
-      if (newImageFiles.length > 0) {
-        const uploadDir = path.join(process.cwd(), 'public/uploads');
-        if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-        for (const file of newImageFiles) {
-          const uniqueFilename = `${Date.now()}-${file.name.replace(/\s+/g, '_')}`;
-          const savePath = path.join(uploadDir, uniqueFilename);
-          await fs.promises.writeFile(savePath, Buffer.from(await file.arrayBuffer()));
-          newImageUrls.push(`/uploads/${uniqueFilename}`);
-        }
-      }
-
-      let currentTripId = tripId;
-      let successParam = 'trip_updated';
-
-      if (tripId) {
-        // Actualizar viaje existente
-        await db.execute({
-          sql: `UPDATE trips SET title = :title, slogan = :slogan, url = :url, price = :price, days = :days, generalDetails = :generalDetails, imageUrl = :imageUrl, terms_conditions = :terms_conditions, travel_type = :travel_type, locality_id = :locality_id, season_year = :season_year, season_name = :season_name, itinerary = :itinerary, hotels_info = :hotels_info, flights_info = :flights_info, full_itinerary = :full_itinerary, departure_id = :departure_id WHERE id = :id`,
-          args: { ...data, id: tripId },
-        });
-      } else {
-        // Crear nuevo viaje
-        successParam = 'trip_added';
-        const result = await db.execute({
-          sql: `INSERT INTO trips (title, slogan, url, price, days, generalDetails, imageUrl, terms_conditions, travel_type, locality_id, season_year, season_name, itinerary, hotels_info, flights_info, full_itinerary, departure_id) VALUES (:title, :slogan, :url, :price, :days, :generalDetails, :imageUrl, :terms_conditions, :travel_type, :locality_id, :season_year, :season_name, :itinerary, :hotels_info, :flights_info, :full_itinerary, :departure_id)`,
-          args: data,
-        });
-        currentTripId = result.lastInsertRowid?.toString();
-      }
-
-      // Actualizar las etiquetas (tags) y las nuevas imágenes
-      if (currentTripId) {
-        await db.execute({ sql: "DELETE FROM trip_tags WHERE trip_id = ?", args: [currentTripId] });
-        if (selectedTags.length > 0) {
-          const tagInserts = selectedTags.map(tagId => ({
-            sql: "INSERT INTO trip_tags (trip_id, tag_id) VALUES (?, ?)",
-            args: [currentTripId, tagId],
-          }));
-          await db.batch(tagInserts, 'write');
-        }
-        if (newImageUrls.length > 0) {
-          const imageInserts = newImageUrls.map(imageUrl => ({
-            sql: "INSERT INTO trip_images (trip_id, imageUrl) VALUES (?, ?)",
-            args: [currentTripId, imageUrl],
-          }));
-          await db.batch(imageInserts, 'write');
-        }
-      }
-      // Redirigir con mensaje de éxito
-      return Astro.redirect(`/admin/viajes?success=${successParam}#trip-list`, 303);
-    }
-  } catch (e) {
-    console.error("Ha ocurrido un error procesando el formulario:", e);
-    formMessage = { type: 'error', text: `Error del servidor: ${e.message}` };
-  }
+if (error) {
+    formMessage = { type: 'error', text: decodeURIComponent(error) };
 }
 
 // --- Cargar datos para editar (si se proporciona un ID en la URL) ---
 let tripToEdit = null;
 let tripTags = [];
 let countryOfTripToEdit = null;
-let additionalImagesToEdit = [];
 const editId = Astro.url.searchParams.get('edit');
 
 if (editId) {
@@ -189,8 +39,6 @@ if (editId) {
         }
         const tagsResult = await db.execute({ sql: "SELECT tag_id FROM trip_tags WHERE trip_id = ?", args: [editId] });
         tripTags = tagsResult.rows.map((row) => row.tag_id);
-        const imagesResult = await db.execute({ sql: "SELECT imageUrl FROM trip_images WHERE trip_id = ?", args: [editId] });
-        additionalImagesToEdit = imagesResult.rows.map((row) => (row.imageUrl));
     }
 }
 
@@ -213,8 +61,6 @@ const trips = tripsResult.rows;
 ---
 
 <AdminLayout title="Gestionar Viajes">
-  <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js" is:inline></script>
-
   <div class="mb-6">
     <a href="/admin/" class="text-blue-600 hover:underline">&larr; Volver al Panel Principal</a>
   </div>
@@ -234,9 +80,9 @@ const trips = tripsResult.rows;
     <!-- Formulario de Viajes -->
     <section id="trip-editor" class="bg-white p-8 rounded-xl shadow-lg">
       <h2 class="text-2xl font-semibold text-primary mb-6">{tripToEdit ? 'Editar Viaje' : 'Añadir Nuevo Viaje'}</h2>
-      <form id="trip-form" method="POST" class="space-y-8" enctype="multipart/form-data">
+      <form id="trip-form" action="/api/trips/save" method="POST" class="space-y-8" enctype="multipart/form-data">
         {tripToEdit && <input type="hidden" name="id" value={tripToEdit.id} />}
-        <input type="hidden" name="intent" value="add_update_trip">
+        {tripToEdit && <input type="hidden" name="imageUrl" value={tripToEdit.imageUrl} />}
 
         <fieldset class="border p-4 rounded-md">
             <legend class="text-xl font-semibold px-2">Información General</legend>
@@ -246,12 +92,12 @@ const trips = tripsResult.rows;
                     <input type="text" name="title" id="title" value={tripToEdit?.title || ''} required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm bg-gray-50">
                 </div>
                 <div>
-                    <label for="slogan" class="block text-sm font-medium text-gray-700">Slogan</label>
-                    <input type="text" name="slogan" id="slogan" value={tripToEdit?.slogan || ''} class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm bg-gray-50">
-                </div>
-                <div>
                     <label for="url" class="block text-sm font-medium text-gray-700">URL (ej: peru-magico)</label>
                     <input type="text" name="url" id="url" value={tripToEdit?.url || ''} required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm bg-gray-50">
+                </div>
+                <div>
+                    <label for="slogan" class="block text-sm font-medium text-gray-700">Slogan</label>
+                    <input type="text" name="slogan" id="slogan" value={tripToEdit?.slogan || ''} class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm bg-gray-50">
                 </div>
                 <div>
                     <label for="price" class="block text-sm font-medium text-gray-700">Precio (USD)</label>
@@ -262,47 +108,23 @@ const trips = tripsResult.rows;
                     <input type="text" name="days" id="days" value={tripToEdit?.days || ''} required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm bg-gray-50">
                 </div>
                 <div class="md:col-span-2">
-                    <label for="imageUrl" class="block text-sm font-medium text-gray-700">URL de la Imagen Principal</label>
-                    <input type="url" name="imageUrl" id="imageUrl" value={tripToEdit?.imageUrl || ''} required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm bg-gray-50">
-                </div>
-
-                <div class="md:col-span-2">
-                    <label for="additionalImages" class="block text-sm font-medium text-gray-700">Añadir Imágenes Adicionales</label>
-                    <input type="file" name="additionalImages" id="additionalImages" multiple accept="image/*" class="mt-1 block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100">
-                    <p class="mt-1 text-xs text-gray-500">Puedes seleccionar múltiples archivos a la vez.</p>
-                </div>
-
-                {additionalImagesToEdit.length > 0 && (
-                    <div class="md:col-span-2">
-                        <h4 class="text-sm font-medium text-gray-700 mb-2">Imágenes Actuales</h4>
-                        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                            {additionalImagesToEdit.map(imageUrl => (
-                                <div class="relative group border rounded-lg overflow-hidden">
-                                    <img src={imageUrl} alt="Imagen del viaje" class="w-full h-24 object-cover" />
-                                    <label class="absolute top-1 right-1 flex items-center space-x-1 bg-white/80 backdrop-blur-sm p-1 rounded-md text-xs cursor-pointer hover:bg-red-50 transition-colors">
-                                        <input type="checkbox" name="delete_images" value={imageUrl} class="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500" />
-                                        <span class="text-red-700 font-medium">Eliminar</span>
-                                    </label>
-                                </div>
-                            ))}
+                    <label for="imageFile" class="block text-sm font-medium text-gray-700">Imagen Principal</label>
+                    <input type="file" name="imageFile" id="imageFile" accept="image/*" class="mt-1 block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100">
+                    {tripToEdit?.imageUrl && (
+                        <div class="mt-2">
+                            <p class="text-sm text-gray-600">Imagen actual:</p>
+                            <img src={tripToEdit.imageUrl} alt="Imagen actual" class="mt-2 h-24 w-auto rounded-lg" />
+                            <p class="text-xs text-gray-500 mt-1">Para reemplazarla, simplemente sube una nueva imagen.</p>
                         </div>
-                    </div>
-                )}
-
-                <div class="md:col-span-2">
-                    <label for="generalDetails" class="block text-sm font-medium text-gray-700">Detalles Generales (Pestaña "Info. General")</label>
-                    <textarea name="generalDetails" id="generalDetails" rows="5" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm bg-gray-50">{tripToEdit?.generalDetails || ''}</textarea>
-                </div>
-                <div class="md:col-span-2">
-                    <label for="terms_conditions" class="block text-sm font-medium text-gray-700">Bases y Condiciones (Pestaña "B. y Cond.")</label>
-                    <textarea name="terms_conditions" id="terms_conditions" rows="5" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm bg-gray-50">{tripToEdit?.terms_conditions || ''}</textarea>
+                    )}
                 </div>
             </div>
         </fieldset>
+        
         <fieldset class="border p-4 rounded-md">
             <legend class="text-xl font-semibold px-2">Categorización</legend>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-                <div>
+                 <div>
                     <label for="country" class="block text-sm font-medium text-gray-700">Destino</label>
                     <select id="country" name="country_id" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm bg-gray-50">
                         <option value="">Selecciona un destino</option>
@@ -346,7 +168,7 @@ const trips = tripsResult.rows;
                     {tags.map((tag: any) => (
                     <div class="flex items-start">
                         <div class="flex h-5 items-center">
-                            <input id={`tag-${tag.id}`} name="tags" type="checkbox" value={tag.id} checked={tripTags.includes(tag.id)} class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                            <input id={`tag-${tag.id}`} name="tags" type="checkbox" value={tag.name} checked={tripTags.includes(tag.id)} class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                         </div>
                         <div class="ml-3 text-sm">
                             <label for={`tag-${tag.id}`} class="font-medium text-gray-700">{tag.name}</label>
@@ -356,41 +178,6 @@ const trips = tripsResult.rows;
                 </div>
             </div>
         </fieldset>
-         <fieldset class="border p-4 rounded-md">
-             <legend class="text-xl font-semibold px-2">Itinerario Interactivo (Videos)</legend>
-             <input type="hidden" name="itinerary" id="itinerary-json">
-             <div id="itinerary-days-container" class="space-y-6 mt-4">
-                 <!-- Los días del itinerario se insertarán aquí dinámicamente -->
-             </div>
-             <button type="button" id="add-day-btn" class="mt-4 inline-flex items-center px-4 py-2 border border-dashed border-gray-400 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
-                 Añadir Día
-             </button>
-         </fieldset>
-
-         <fieldset class="border p-4 rounded-md">
-            <legend class="text-xl font-semibold px-2">Itinerario Detallado (Pestaña)</legend>
-            <input type="hidden" name="full_itinerary" id="full-itinerary-json">
-            <div id="full-itinerary-days-container" class="space-y-6 mt-4">
-                <!-- Días del itinerario detallado -->
-            </div>
-            <button type="button" id="add-full-day-btn" class="mt-4 inline-flex items-center px-4 py-2 border border-dashed border-gray-400 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">
-                Añadir Día al Itinerario Detallado
-            </button>
-         </fieldset>
-
-         <fieldset class="border p-4 rounded-md">
-             <legend class="text-xl font-semibold px-2">Información Adicional</legend>
-             <div class="space-y-6 mt-4">
-                 <div>
-                     <label for="hotels_info" class="block text-sm font-medium text-gray-700">Información de Hoteles</label>
-                     <textarea name="hotels_info" id="hotels_info" rows="6" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm bg-gray-50" placeholder="Describe los hoteles incluidos...">{tripToEdit?.hotels_info || ''}</textarea>
-                 </div>
-                 <div>
-                     <label for="flights_info" class="block text-sm font-medium text-gray-700">Información de Vuelos</label>
-                     <textarea name="flights_info" id="flights_info" rows="6" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm bg-gray-50" placeholder="Información sobre vuelos, qué incluye/no incluye, etc.">{tripToEdit?.flights_info || ''}</textarea>
-                 </div>
-             </div>
-         </fieldset>
 
         <div class="flex justify-end space-x-4 pt-4">
             {tripToEdit && <a href="/admin/viajes#trip-list" class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50">Cancelar</a>}
@@ -404,25 +191,16 @@ const trips = tripsResult.rows;
     <section id="trip-list" class="bg-white p-8 rounded-xl shadow-lg">
       <h2 class="text-2xl font-semibold text-primary mb-4">Viajes Existentes</h2>
       <div class="overflow-x-auto">
-        <table id="trips-table" class="min-w-full divide-y divide-gray-200 table-auto">
+        <table class="min-w-full divide-y divide-gray-200">
           <thead class="bg-gray-50">
             <tr>
-              <th scope="col" class="sortable-header px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" data-column-index="0">Título<span class="sort-indicator"></span></th>
-              <th scope="col" class="sortable-header px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" data-column-index="1">Destino<span class="sort-indicator"></span></th>
-              <th scope="col" class="sortable-header px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" data-column-index="2" data-sort-type="number">Precio<span class="sort-indicator"></span></th>
-              <th scope="col" class="sortable-header px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" data-column-index="3">Días<span class="sort-indicator"></span></th>
-              <th scope="col" class="sortable-header px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" data-column-index="4">Tipo<span class="sort-indicator"></span></th>
-              <th scope="col" class="sortable-header px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer" data-column-index="5">Salida<span class="sort-indicator"></span></th>
-              <th scope="col" class="relative px-6 py-3"><span class="sr-only">Acciones</span></th>
-            </tr>
-            <tr class="bg-gray-100">
-              <th class="px-6 py-2"><input type="text" placeholder="Filtrar..." class="filter-input w-full px-2 py-1 border border-gray-300 rounded-md text-sm font-normal bg-white" data-column="0"></th>
-              <th class="px-6 py-2"><input type="text" placeholder="Filtrar..." class="filter-input w-full px-2 py-1 border border-gray-300 rounded-md text-sm font-normal bg-white" data-column="1"></th>
-              <th class="px-6 py-2"><input type="text" placeholder="Filtrar..." class="filter-input w-full px-2 py-1 border border-gray-300 rounded-md text-sm font-normal bg-white" data-column="2"></th>
-              <th class="px-6 py-2"><input type="text" placeholder="Filtrar..." class="filter-input w-full px-2 py-1 border border-gray-300 rounded-md text-sm font-normal bg-white" data-column="3"></th>
-              <th class="px-6 py-2"><input type="text" placeholder="Filtrar..." class="filter-input w-full px-2 py-1 border border-gray-300 rounded-md text-sm font-normal bg-white" data-column="4"></th>
-              <th class="px-6 py-2"><input type="text" placeholder="Filtrar..." class="filter-input w-full px-2 py-1 border border-gray-300 rounded-md text-sm font-normal bg-white" data-column="5"></th>
-              <th class="px-6 py-2"></th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Título</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Destino</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Precio</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Días</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Salida</th>
+              <th class="relative px-6 py-3"><span class="sr-only">Acciones</span></th>
             </tr>
           </thead>
           <tbody class="bg-white divide-y divide-gray-200">
@@ -448,310 +226,36 @@ const trips = tripsResult.rows;
     </section>
   </div>
 
-  <!-- Plantillas y Scripts -->
-  <template id="full-itinerary-day-template">
-    <div class="full-itinerary-day-item bg-white p-4 rounded-lg shadow-sm border relative">
-        <div class="drag-handle absolute top-1/2 -left-3 -translate-y-1/2 cursor-grab text-gray-400 hover:text-gray-600 p-1">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M10 19a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-4 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm8 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-4-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm4 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-8 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm4-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm4 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-8 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>
-        </div>
-        <div class="pl-6">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div><label class="block text-sm font-medium text-gray-700">Título del Día</label><input type="text" name="full_day_title" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-50" required></div>
-                <div><label class="block text-sm font-medium text-gray-700">Imagen del Día</label><input type="file" name="full_day_image_file" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" accept="image/*"><input type="hidden" name="full_day_imageUrl"><p class="current-image-path text-xs text-gray-500 mt-1"></p></div>
-                <div class="md:col-span-2"><label class="block text-sm font-medium text-gray-700">Descripción del Día</label><textarea name="full_day_description" rows="5" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-50"></textarea></div>
-            </div>
-            <button type="button" class="remove-full-day-btn absolute top-2 right-2 text-red-500 hover:text-red-700 font-bold p-2">&times;</button>
-        </div>
-    </div>
-  </template>
+<script define:vars={{ allLocalities: localities, selectedLocality: tripToEdit?.locality_id, initialCountryId: countryOfTripToEdit }}>
+  document.addEventListener('DOMContentLoaded', () => {
+    const countrySelect = document.querySelector('#country');
+    const localitySelect = document.querySelector('#locality');
+    const localityWrapper = document.getElementById('locality-wrapper');
 
-  <template id="itinerary-day-template">
-      <div class="itinerary-day-item bg-white p-4 rounded-lg shadow-sm border relative">
-        <div class="drag-handle absolute top-1/2 -left-3 -translate-y-1/2 cursor-grab text-gray-400 hover:text-gray-600 p-1">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M10 19a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-4 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm8 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-4-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm4 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-8 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm4-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm4 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-8 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>
-        </div>
-          <div class="pl-6">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700">Título del Día (ej: Arequipa)</label>
-                    <input type="text" name="day_title" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-50" required>
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700">Subir Video</label>
-                    <input type="file" name="day_video_file" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100" accept="video/*">
-                    <input type="hidden" name="day_videoUrl">
-                    <p class="current-video-path text-xs text-gray-500 mt-1"></p>
-                </div>
-                <div class="md:col-span-2">
-                    <label class="block text-sm font-medium text-gray-700">Slogan / Frase principal</label>
-                    <input type="text" name="day_slogan" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-50">
-                </div>
-                <div class="md:col-span-2">
-                    <label class="block text-sm font-medium text-gray-700">Puntos Clave (uno por línea)</label>
-                    <textarea name="day_points" rows="4" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-50"></textarea>
-                </div>
-              </div>
-              <button type="button" class="remove-day-btn absolute top-2 right-2 text-red-500 hover:text-red-900 font-bold p-2">&times;</button>
-          </div>
-      </div>
-  </template>
-</AdminLayout>
+    const updateLocalities = (countryId, localityIdToSelect) => {
+        if (!localityWrapper || !localitySelect) return;
+        localityWrapper.style.display = countryId ? 'block' : 'none';
+        localitySelect.innerHTML = '<option value="">Selecciona una localidad</option>';
 
-<style>
-  .sortable-header .sort-indicator::after {
-    content: ' ';
-    display: inline-block;
-    width: 0;
-    height: 0;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    margin-left: 5px;
-    opacity: 0.5;
-    transition: opacity 0.2s;
-  }
-  .sortable-header.sort-asc .sort-indicator::after { border-bottom: 4px solid currentColor; opacity: 1; }
-  .sortable-header.sort-desc .sort-indicator::after { border-top: 4px solid currentColor; opacity: 1; }
-
-  .sortable-ghost {
-    opacity: 0.4;
-    background: #c8ebfb;
-  }
-  .sortable-chosen {
-    cursor: grabbing;
-  }
-</style>
-
-<script define:vars={{ allLocalities: localities, selectedLocality: tripToEdit?.locality_id, initialCountryId: countryOfTripToEdit, tripToEdit: tripToEdit }}>
-  // =================================================================================
-  // FUNCIONES DE CONFIGURACIÓN
-  // =================================================================================
-
-  function createDayElement(dayData = {}, container, template) {
-      const clone = template.content.cloneNode(true);
-      const dayElement = clone.querySelector('.itinerary-day-item');
-
-      dayElement.querySelector('[name="day_title"]').value = dayData.title || '';
-      dayElement.querySelector('[name="day_slogan"]').value = dayData.slogan || '';
-      dayElement.querySelector('[name="day_points"]').value = dayData.points || '';
-      
-      const videoUrlInput = dayElement.querySelector('[name="day_videoUrl"]');
-      const currentVideoPath = dayElement.querySelector('.current-video-path');
-      if (dayData.videoUrl) {
-          videoUrlInput.value = dayData.videoUrl;
-          currentVideoPath.textContent = `Video actual: ${dayData.videoUrl}`;
-      }
-
-      dayElement.querySelector('.remove-day-btn').addEventListener('click', () => {
-          dayElement.remove();
-      });
-
-      container.appendChild(clone);
-  }
-
-  function createFullDayElement(dayData = {}, container, template) {
-      const clone = template.content.cloneNode(true);
-      const dayElement = clone.querySelector('.full-itinerary-day-item');
-
-      dayElement.querySelector('[name="full_day_title"]').value = dayData.title || '';
-      dayElement.querySelector('[name="full_day_description"]').value = dayData.description || '';
-      
-      const imageUrlInput = dayElement.querySelector('[name="full_day_imageUrl"]');
-      const currentImagePath = dayElement.querySelector('.current-image-path');
-      if (dayData.imageUrl) {
-          imageUrlInput.value = dayData.imageUrl;
-          currentImagePath.textContent = `Imagen actual: ${dayData.imageUrl}`;
-      }
-
-      dayElement.querySelector('.remove-full-day-btn').addEventListener('click', () => dayElement.remove());
-      container.appendChild(clone);
-  }
-
-  function setupDragAndDrop() {
-    if (typeof Sortable === 'undefined') {
-        console.error("SortableJS no está cargado.");
-        return;
-    }
-    const makeSortable = (containerId, handleClass) => {
-      const container = document.getElementById(containerId);
-      if (container) {
-        new Sortable(container, {
-            animation: 150,
-            handle: handleClass,
-            ghostClass: 'sortable-ghost',
-            chosenClass: 'sortable-chosen',
-        });
-      }
-    };
-    makeSortable('itinerary-days-container', '.drag-handle');
-    makeSortable('full-itinerary-days-container', '.drag-handle');
-  }
-
-  function initializeTripsTable() {
-    const table = document.getElementById('trips-table');
-    if (!table) return;
-
-    const headers = Array.from(table.querySelectorAll('.sortable-header'));
-    const filterInputs = Array.from(table.querySelectorAll('.filter-input'));
-    const tbody = table.querySelector('tbody');
-    let rows = Array.from(tbody.querySelectorAll('tr'));
-    let sortDirections = headers.map(() => null); // null, 'asc', 'desc'
-
-    const sortTable = (columnIndex, direction) => {
-        const isNumeric = headers[columnIndex].dataset.sortType === 'number';
-        
-        rows.sort((a, b) => {
-            let valA = a.cells[columnIndex].textContent.trim();
-            let valB = b.cells[columnIndex].textContent.trim();
-
-            if (isNumeric) {
-                valA = parseFloat(valA.replace(/[^0-9.-]+/g,""));
-                valB = parseFloat(valB.replace(/[^0-9.-]+/g,""));
-            }
-
-            if (valA < valB) return direction === 'asc' ? -1 : 1;
-            if (valA > valB) return direction === 'asc' ? 1 : -1;
-            return 0;
-        });
-
-        tbody.innerHTML = '';
-        rows.forEach(row => tbody.appendChild(row));
-    };
-
-    const filterTable = () => {
-        const filterValues = filterInputs.map(input => input.value.toLowerCase());
-        
-        rows.forEach(row => {
-            const rowVisible = filterValues.every((filter, colIndex) => {
-                if (!filter) return true;
-                const cellText = row.cells[colIndex].textContent.toLowerCase();
-                return cellText.includes(filter);
+        if (countryId) {
+            const filteredLocalities = allLocalities.filter(l => String(l.country_id) === String(countryId));
+            filteredLocalities.forEach(loc => {
+                const option = new Option(loc.name, loc.id.toString());
+                if (localityIdToSelect && String(loc.id) === String(localityIdToSelect)) {
+                    option.selected = true;
+                }
+                localitySelect.add(option);
             });
-            row.style.display = rowVisible ? '' : 'none';
-        });
+        }
     };
 
-    headers.forEach((header, index) => {
-        header.addEventListener('click', () => {
-            const currentDirection = sortDirections[index];
-            const newDirection = currentDirection === 'asc' ? 'desc' : 'asc';
-
-            headers.forEach(h => h.classList.remove('sort-asc', 'sort-desc'));
-            header.classList.add(newDirection === 'asc' ? 'sort-asc' : 'sort-desc');
-            
-            sortDirections = sortDirections.map((dir, i) => i === index ? newDirection : null);
-            
-            sortTable(index, newDirection);
+    if (countrySelect) {
+        countrySelect.addEventListener('change', (e) => {
+            updateLocalities(e.target.value, null);
         });
-    });
-
-    filterInputs.forEach(input => {
-        input.addEventListener('keyup', filterTable);
-    });
-  }
-
-  // =================================================================================
-  // FUNCIÓN DE INICIALIZACIÓN PRINCIPAL
-  // =================================================================================
-  function initializeTripPanel() {
-    const tripForm = document.getElementById('trip-form');
-    if (tripForm) {
-      // --- Itinerario Interactivo ---
-      const itineraryContainer = document.getElementById('itinerary-days-container');
-      const addDayBtn = document.getElementById('add-day-btn');
-      const itineraryTemplate = document.getElementById('itinerary-day-template');
-      const itineraryJsonInput = document.getElementById('itinerary-json');
-
-      if (itineraryContainer && addDayBtn && itineraryTemplate && itineraryJsonInput) {
-        const serializeItinerary = () => {
-            const days = Array.from(itineraryContainer.querySelectorAll('.itinerary-day-item')).map(item => ({
-                title: item.querySelector('[name="day_title"]').value,
-                videoUrl: item.querySelector('[name="day_videoUrl"]').value,
-                slogan: item.querySelector('[name="day_slogan"]').value,
-                points: item.querySelector('[name="day_points"]').value,
-            }));
-            itineraryJsonInput.value = JSON.stringify(days);
-        };
-        addDayBtn.addEventListener('click', () => createDayElement({}, itineraryContainer, itineraryTemplate));
-        tripForm.addEventListener('submit', serializeItinerary);
-        if (tripToEdit?.itinerary) {
-            try { JSON.parse(tripToEdit.itinerary).forEach(day => createDayElement(day, itineraryContainer, itineraryTemplate)); } catch (e) { console.error("Error al parsear itinerario:", e); }
-        }
-      }
-
-      // --- Itinerario Detallado ---
-      const fullItineraryContainer = document.getElementById('full-itinerary-days-container');
-      const addFullDayBtn = document.getElementById('add-full-day-btn');
-      const fullTemplate = document.getElementById('full-itinerary-day-template');
-      const fullItineraryJsonInput = document.getElementById('full-itinerary-json');
-
-      if (fullItineraryContainer && addFullDayBtn && fullTemplate && fullItineraryJsonInput) {
-        const serializeFullItinerary = () => {
-            const days = Array.from(fullItineraryContainer.querySelectorAll('.full-itinerary-day-item')).map(item => ({
-                title: item.querySelector('[name="full_day_title"]').value,
-                imageUrl: item.querySelector('[name="full_day_imageUrl"]').value,
-                description: item.querySelector('[name="full_day_description"]').value,
-            }));
-            fullItineraryJsonInput.value = JSON.stringify(days);
-        };
-        addFullDayBtn.addEventListener('click', () => createFullDayElement({}, fullItineraryContainer, fullTemplate));
-        tripForm.addEventListener('submit', serializeFullItinerary);
-        if (tripToEdit?.full_itinerary) {
-            try { JSON.parse(tripToEdit.full_itinerary).forEach(day => createFullDayElement(day, fullItineraryContainer, fullTemplate)); } catch (e) { console.error("Error al parsear itinerario detallado:", e); }
-        }
-      }
-
-      // --- Selectores de País/Localidad ---
-      const countrySelect = tripForm.querySelector('#country');
-      const localitySelect = tripForm.querySelector('#locality');
-      const localityWrapper = document.getElementById('locality-wrapper');
-      if (countrySelect instanceof HTMLSelectElement && localitySelect instanceof HTMLSelectElement && localityWrapper) {
-        const updateLocalities = (countryId, localityIdToSelect) => {
-          localityWrapper.style.display = (countryId && String(countryId).length > 0) ? 'block' : 'none';
-          localitySelect.innerHTML = '';
-          if (!countryId) {
-            localitySelect.innerHTML = '<option value="">Primero selecciona un destino</option>';
-            return;
-          }
-          const filtered = allLocalities.filter(l => String(l.country_id) === String(countryId));
-          const placeholderText = filtered.length > 0 ? "Selecciona una localidad" : "No hay localidades para este destino";
-          localitySelect.innerHTML = `<option value="">${placeholderText}</option>`;
-          filtered.forEach(loc => {
-            const option = new Option(loc.name, loc.id.toString());
-            if (localityIdToSelect != null && String(loc.id) === String(localityIdToSelect)) {
-              option.selected = true;
-            }
-            localitySelect.add(option);
-          });
-        };
-        countrySelect.addEventListener('change', (event) => updateLocalities(event.target.value, null));
+        // Initial load
         updateLocalities(initialCountryId, selectedLocality);
-      }
     }
-
-    // --- Inicializar Drag & Drop y Tabla ---
-    setupDragAndDrop();
-    initializeTripsTable();
-
-    // Manejo de mensajes de éxito/error para que desaparezcan
-    const formMessageElement = document.querySelector('[role="alert"]');
-    if (formMessageElement) {
-        const url = new URL(window.location.href);
-        if (url.searchParams.has('success') || url.searchParams.has('error')) {
-            window.history.replaceState({}, document.title, '/admin/viajes' + window.location.hash);
-        }
-        setTimeout(() => {
-            formMessageElement.style.transition = 'opacity 0.5s ease, transform 0.5s ease, margin-top 0.5s ease';
-            formMessageElement.style.opacity = '0';
-            formMessageElement.style.transform = 'translateY(-20px)';
-            formMessageElement.style.marginTop = '-1rem';
-            setTimeout(() => formMessageElement.remove(), 500);
-        }, 4500);
-    }
-  }
-
-  // =================================================================================
-  // EJECUCIÓN
-  // =================================================================================
-  document.addEventListener('astro:page-load', initializeTripPanel);
-  initializeTripPanel();
+  });
 </script>
+</AdminLayout>
