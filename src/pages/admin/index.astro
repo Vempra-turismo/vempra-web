@@ -1,8 +1,6 @@
 ---
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import db from '@/lib/turso';
-import fs from 'node:fs';
-import path from 'node:path';
 
 export const prerender = false;
 
@@ -128,7 +126,7 @@ if (Astro.request.method === 'POST') {
       const tagName = formData.get('tag_name')?.toString();
       if (tagName) {
         await db.execute({
-          sql: "INSERT INTO tags (name) VALUES (?)",
+          sql: "INSERT INTO tags (name) VALUES (?)" ,
           args: [tagName],
         });
       }
@@ -139,7 +137,6 @@ if (Astro.request.method === 'POST') {
         try {
           await db.execute({ sql: "DELETE FROM countries WHERE id = ?", args: [categoryId] });
         } catch (e) {
-          // Esto fallará si el país tiene localidades asociadas, lo cual es bueno para prevenir datos huérfanos.
           console.error("Error al eliminar país (probablemente en uso):", e.message);
         }
       }
@@ -147,7 +144,6 @@ if (Astro.request.method === 'POST') {
       }
       case 'delete_locality': {
       if (categoryId) {
-        // Esto fallará si la localidad está asignada a un viaje.
         try {
           await db.execute({ sql: "DELETE FROM localities WHERE id = ?", args: [categoryId] });
         } catch (e) {
@@ -194,56 +190,47 @@ if (Astro.request.method === 'POST') {
       }
       break;
       }
-      case 'update_staff': {
-      const staffId = formData.get('staff_id')?.toString();
-      const name = formData.get('staff_name')?.toString();
-      const position = formData.get('staff_position')?.toString();
-      const description = formData.get('staff_description')?.toString();
-      const imageFile = formData.get('staff_image');
-      let imageUrl = formData.get('existing_imageUrl')?.toString();
+      case 'add_staff': {
+        const name = formData.get('staff_name')?.toString();
+        const position = formData.get('staff_position')?.toString();
+        const description = formData.get('staff_description')?.toString();
+        const imageUrl = formData.get('staff_imageUrl')?.toString();
 
-      if (staffId && name && position) {
-        if (imageFile instanceof File && imageFile.size > 0) {
-            // Subir nueva imagen y borrar la antigua si existe
-            const uploadDir = path.join(process.cwd(), 'public/uploads/staff');
-            if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-            const uniqueFilename = `${Date.now()}-${imageFile.name.replace(/\s+/g, '_')}`;
-            const savePath = path.join(uploadDir, uniqueFilename);
-            await fs.promises.writeFile(savePath, Buffer.from(await imageFile.arrayBuffer()));
-
-            // Borrar la imagen antigua si existe
-            const oldImageUrl = formData.get('existing_imageUrl')?.toString();
-            if (oldImageUrl && oldImageUrl.startsWith('/uploads/staff/')) {
-                const oldFilename = oldImageUrl.substring('/uploads/staff/'.length);
-                const oldFilePath = path.join(process.cwd(), 'public/uploads/staff', oldFilename);
-                if (fs.existsSync(oldFilePath)) {
-                    fs.unlinkSync(oldFilePath);
-                }
-            }
-
-            imageUrl = `/uploads/staff/${uniqueFilename}`;
+        if (name && position && imageUrl) {
+            await db.execute({
+                sql: "INSERT INTO staff (name, position, description, imageUrl, sort_order) VALUES (?, ?, ?, ?, (SELECT IFNULL(MAX(sort_order), -1) + 1 FROM staff))",
+                args: [name, position, description, imageUrl],
+            });
+        } else {
+            formMessage = { type: 'error', text: 'Para añadir un miembro, el nombre, el cargo y la URL de la foto son obligatorios.' };
         }
-        await db.execute({
-            sql: "UPDATE staff SET name = ?, position = ?, description = ?, imageUrl = ? WHERE id = ?",
-            args: [name, position, description, imageUrl, staffId],
-        });
+        break;
       }
-      break;
+      case 'update_staff': {
+        const staffId = formData.get('staff_id')?.toString();
+        const name = formData.get('staff_name')?.toString();
+        const position = formData.get('staff_position')?.toString();
+        const description = formData.get('staff_description')?.toString();
+        const imageUrl = formData.get('staff_imageUrl')?.toString();
+
+        if (staffId && name && position && imageUrl) {
+            await db.execute({
+                sql: "UPDATE staff SET name = ?, position = ?, description = ?, imageUrl = ? WHERE id = ?",
+                args: [name, position, description, imageUrl, staffId],
+            });
+        } else {
+             formMessage = { type: 'error', text: 'Faltan campos para actualizar el miembro del equipo.' };
+        }
+        break;
       }
       case 'delete_staff': {
-      const staffId = formData.get('staff_id')?.toString();
-      if (staffId) {
-        const result = await db.execute({ sql: "SELECT imageUrl FROM staff WHERE id = ?", args: [staffId] });
-        if (result.rows.length > 0 && result.rows[0].imageUrl) {
-            const filename = (result.rows[0].imageUrl as string).substring('/uploads/staff/'.length);
-            const filePath = path.join(process.cwd(), 'public/uploads/staff', filename);
-            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        const staffId = formData.get('staff_id')?.toString();
+        if (staffId) {
+            await db.execute({ sql: "DELETE FROM staff WHERE id = ?", args: [staffId] });
         }
-        await db.execute({ sql: "DELETE FROM staff WHERE id = ?", args: [staffId] });
+        break;
       }
-      break;
-    }
-    case 'update_staff_order': {
+      case 'update_staff_order': {
         const orderedIdsRaw = formData.get('staff_order')?.toString();
         if (orderedIdsRaw) {
             const orderedIds = orderedIdsRaw.split(',');
@@ -257,160 +244,79 @@ if (Astro.request.method === 'POST') {
       }
       case 'add_update_trip':
       default: {
-      const selectedTags = formData.getAll('tags').map(id => parseInt(id.toString(), 10));
+        const selectedTags = formData.getAll('tags').map(id => parseInt(id.toString(), 10));
 
-      // --- LÓGICA DE ELIMINACIÓN DE IMÁGENES ---
-      const imagesToDelete = formData.getAll('delete_images').map(String);
-      if (imagesToDelete.length > 0 && tripId) {
-        // Primero, borramos los archivos del sistema
-        for (const imageUrl of imagesToDelete) {
-          if (imageUrl.startsWith('/uploads/')) {
-            const filename = imageUrl.substring('/uploads/'.length);
-            const filePath = path.join(process.cwd(), 'public/uploads', filename);
-            try {
-              if (fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath);
-              }
-            } catch (e) {
-              console.error(`Error al eliminar el archivo de imagen ${filePath}:`, e);
+        // --- LÓGICA DE ELIMINACIÓN DE IMÁGENES ---
+        const imagesToDelete = formData.getAll('delete_images').map(String);
+        if (imagesToDelete.length > 0 && tripId) {
+            const deletePromises = imagesToDelete.map(imageUrl => db.execute({
+            sql: "DELETE FROM trip_images WHERE trip_id = ? AND imageUrl = ?",
+            args: [tripId, imageUrl],
+            }));
+            await Promise.all(deletePromises);
+        }
+
+        // --- LÓGICA DE SUBIDA DE NUEVAS IMÁGENES (AHORA URLs) ---
+        const newImageUrlsRaw = formData.get('additionalImageUrls')?.toString() || '';
+        const newImageUrls = newImageUrlsRaw.split(/[,\s]+/).map(url => url.trim()).filter(url => url.startsWith('http'));
+
+        let currentTripId = tripId;
+
+        if (tripId) {
+            // Actualizar viaje existente
+            await db.execute({
+            sql: `UPDATE trips SET title = :title, slogan = :slogan, url = :url, price = :price, days = :days, generalDetails = :generalDetails, imageUrl = :imageUrl, terms_conditions = :terms_conditions, travel_type = :travel_type, locality_id = :locality_id, season_year = :season_year, season_name = :season_name, itinerary = :itinerary, hotels_info = :hotels_info, flights_info = :flights_info, full_itinerary = :full_itinerary, departure_id = :departure_id WHERE id = :id`,
+            args: { ...data, id: tripId },
+            });
+        } else {
+            // Crear nuevo viaje
+            const result = await db.execute({
+            sql: `INSERT INTO trips (title, slogan, url, price, days, generalDetails, imageUrl, terms_conditions, travel_type, locality_id, season_year, season_name, itinerary, hotels_info, flights_info, full_itinerary, departure_id) VALUES (:title, :slogan, :url, :price, :days, :generalDetails, :imageUrl, :terms_conditions, :travel_type, :locality_id, :season_year, :season_name, :itinerary, :hotels_info, :flights_info, :full_itinerary, :departure_id)`,
+            args: data,
+            });
+            currentTripId = result.lastInsertRowid?.toString();
+        }
+
+        // Actualizar las etiquetas (tags)
+        if (currentTripId) {
+            await db.execute({
+            sql: "DELETE FROM trip_tags WHERE trip_id = ?",
+            args: [currentTripId],
+            });
+            if (selectedTags.length > 0) {
+            const tagInserts = selectedTags.map(tagId => ({
+                sql: "INSERT INTO trip_tags (trip_id, tag_id) VALUES (?, ?)",
+                args: [currentTripId, tagId],
+            }));
+            await db.batch(tagInserts, 'write');
             }
-          }
+
+            // Insertar las nuevas imágenes (URLs)
+            if (newImageUrls.length > 0) {
+            const imageInserts = newImageUrls.map(imageUrl => ({
+                sql: "INSERT INTO trip_images (trip_id, imageUrl) VALUES (?, ?)",
+                args: [currentTripId, imageUrl],
+            }));
+            await db.batch(imageInserts, 'write');
+            }
         }
-        // Luego, borramos los registros de la base de datos
-        const deletePromises = imagesToDelete.map(imageUrl => db.execute({
-          sql: "DELETE FROM trip_images WHERE trip_id = ? AND imageUrl = ?",
-          args: [tripId, imageUrl],
-        }));
-        await Promise.all(deletePromises);
+        break;
       }
-
-      // --- LÓGICA DE SUBIDA DE VIDEOS DEL ITINERARIO (CORREGIDA) ---
-      const itineraryJson = formData.get('itinerary')?.toString();
-      let itineraryData = [];
-      if (itineraryJson) {
-          try {
-              itineraryData = JSON.parse(itineraryJson);
-          } catch (e) {
-              console.error("Error al parsear el JSON del itinerario al guardar:", e);
-          }
-      }
-
-      // Obtenemos TODOS los inputs de video, incluso los vacíos, para mantener el orden.
-      const allVideoInputs = formData.getAll('day_video_file');
-      const uploadDirVideos = path.join(process.cwd(), 'public/uploads/videos');
-      if (!fs.existsSync(uploadDirVideos)) fs.mkdirSync(uploadDirVideos, { recursive: true });
-
-      // Iteramos sobre los días del itinerario para verificar si se subió un nuevo video para cada uno.
-      for (let i = 0; i < itineraryData.length; i++) {
-          const file = allVideoInputs[i];
-          // Verificamos que sea un archivo válido y que tenga contenido.
-          if (file instanceof File && file.size > 0) {
-              const uniqueFilename = `${Date.now()}-${file.name.replace(/\s+/g, '_')}`;
-              const savePath = path.join(uploadDirVideos, uniqueFilename);
-              await fs.promises.writeFile(savePath, Buffer.from(await file.arrayBuffer()));
-              // Actualizamos la URL del video para este día específico.
-              itineraryData[i].videoUrl = `/uploads/videos/${uniqueFilename}`;
-          }
-      }
-      // Volvemos a convertir el itinerario a JSON y lo actualizamos en el objeto de datos a guardar.
-      data.itinerary = JSON.stringify(itineraryData);
-
-      // --- LÓGICA DE SUBIDA DE IMÁGENES DEL ITINERARIO DETALLADO ---
-      const fullItineraryJson = formData.get('full_itinerary')?.toString();
-      let fullItineraryData = [];
-      if (fullItineraryJson) {
-          try {
-              fullItineraryData = JSON.parse(fullItineraryJson);
-          } catch (e) {
-              console.error("Error al parsear el JSON del itinerario detallado:", e);
-          }
-      }
-      const allImageInputs = formData.getAll('full_day_image_file');
-      const uploadDirImages = path.join(process.cwd(), 'public/uploads/itinerary');
-      if (!fs.existsSync(uploadDirImages)) fs.mkdirSync(uploadDirImages, { recursive: true });
-
-      for (let i = 0; i < fullItineraryData.length; i++) {
-          const file = allImageInputs[i];
-          if (file instanceof File && file.size > 0) {
-              const uniqueFilename = `${Date.now()}-full-${file.name.replace(/\s+/g, '_')}`;
-              const savePath = path.join(uploadDirImages, uniqueFilename);
-              await fs.promises.writeFile(savePath, Buffer.from(await file.arrayBuffer()));
-              fullItineraryData[i].imageUrl = `/uploads/itinerary/${uniqueFilename}`;
-          }
-      }
-      data.full_itinerary = JSON.stringify(fullItineraryData);
-
-      // --- LÓGICA DE SUBIDA DE NUEVAS IMÁGENES ---
-      const newImageFiles = formData.getAll('additionalImages').filter(f => f instanceof File && f.size > 0);
-      const newImageUrls = [];
-      if (newImageFiles.length > 0) {
-        const uploadDir = path.join(process.cwd(), 'public/uploads');
-        if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
-        for (const file of newImageFiles) {
-          const uniqueFilename = `${Date.now()}-${file.name.replace(/\s+/g, '_')}`;
-          const savePath = path.join(uploadDir, uniqueFilename);
-          await fs.promises.writeFile(savePath, Buffer.from(await file.arrayBuffer()));
-          newImageUrls.push(`/uploads/${uniqueFilename}`);
-        }
-      }
-
-      let currentTripId = tripId;
-
-      if (tripId) {
-        // Actualizar viaje existente
-        await db.execute({
-          sql: `UPDATE trips SET title = :title, slogan = :slogan, url = :url, price = :price, days = :days, generalDetails = :generalDetails, imageUrl = :imageUrl, terms_conditions = :terms_conditions, travel_type = :travel_type, locality_id = :locality_id, season_year = :season_year, season_name = :season_name, itinerary = :itinerary, hotels_info = :hotels_info, flights_info = :flights_info, full_itinerary = :full_itinerary, departure_id = :departure_id WHERE id = :id`,
-          args: { ...data, id: tripId },
-        });
-      } else {
-        // Crear nuevo viaje
-        const result = await db.execute({
-          sql: `INSERT INTO trips (title, slogan, url, price, days, generalDetails, imageUrl, terms_conditions, travel_type, locality_id, season_year, season_name, itinerary, hotels_info, flights_info, full_itinerary, departure_id) VALUES (:title, :slogan, :url, :price, :days, :generalDetails, :imageUrl, :terms_conditions, :travel_type, :locality_id, :season_year, :season_name, :itinerary, :hotels_info, :flights_info, :full_itinerary, :departure_id)`,
-          args: data,
-        });
-        currentTripId = result.lastInsertRowid?.toString();
-      }
-
-      // Actualizar las etiquetas (tags)
-      if (currentTripId) {
-        await db.execute({
-          sql: "DELETE FROM trip_tags WHERE trip_id = ?",
-          args: [currentTripId],
-        });
-        if (selectedTags.length > 0) {
-          const tagInserts = selectedTags.map(tagId => ({
-            sql: "INSERT INTO trip_tags (trip_id, tag_id) VALUES (?, ?)",
-            args: [currentTripId, tagId],
-          }));
-          await db.batch(tagInserts, 'write');
-        }
-
-        // --- NUEVO: Insertar las nuevas imágenes ---
-        if (newImageUrls.length > 0) {
-          const imageInserts = newImageUrls.map(imageUrl => ({
-            sql: "INSERT INTO trip_images (trip_id, imageUrl) VALUES (?, ?)",
-            args: [currentTripId, imageUrl],
-          }));
-          await db.batch(imageInserts, 'write'); // Usamos batch para eficiencia
-        }
-      }
-      break;
-    }
     }
   } catch (e) {
     console.error("Ha ocurrido un error procesando el formulario:", e);
     formMessage = { type: 'error', text: `Error del servidor: ${e.message}` };
   }
 
-  // Solo redirigimos si no hubo ningún error. Si hubo un error, la página se volverá a renderizar y mostrará el mensaje.
   if (!formMessage) {
     let redirectUrl = '/admin';
     if (intent === 'update_staff_order') {
       redirectUrl = '/admin?success=staff_order_updated#staff';
+    } else if (intent === 'add_staff') {
+      redirectUrl = '/admin?success=staff_added#staff';
     } else if (intent === 'update_staff') {
       redirectUrl = '/admin?success=staff_updated#staff';
-    } else if (intent?.includes('staff')) { // delete_staff
+    } else if (intent?.includes('staff')) {
       redirectUrl = '/admin#staff';
     } else if (intent?.includes('country') || intent?.includes('locality') || intent?.includes('tag') || intent?.includes('departure')) {
       redirectUrl = '/admin#categorias';
@@ -510,7 +416,7 @@ const trips = tripsResult.rows;
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js" is:inline></script>
       <!-- Contenedor para mostrar mensajes de éxito o error -->
       {formMessage && (
-        <div class:list={[
+        <div class:list={[ 
             "px-4 py-3 rounded-lg relative mb-6 border text-center",
             { 'bg-red-100 border-red-400 text-red-700': formMessage.type === 'error' },
             { 'bg-green-100 border-green-400 text-green-700': formMessage.type === 'success' }
@@ -546,7 +452,7 @@ const trips = tripsResult.rows;
         <!-- Formulario de Viajes -->
         <section id="trip-editor" class="bg-white p-8 rounded-xl shadow-lg">
           <h2 class="text-2xl font-semibold text-primary mb-6">{tripToEdit ? 'Editar Viaje' : 'Añadir Nuevo Viaje'}</h2>
-          <form id="trip-form" method="POST" class="space-y-8" enctype="multipart/form-data">
+          <form id="trip-form" method="POST" class="space-y-8">
             {tripToEdit && <input type="hidden" name="id" value={tripToEdit.id} />}
             <input type="hidden" name="intent" value="add_update_trip">
 
@@ -575,13 +481,13 @@ const trips = tripsResult.rows;
                     </div>
                     <div class="md:col-span-2">
                         <label for="imageUrl" class="block text-sm font-medium text-gray-700">URL de la Imagen Principal</label>
-                        <input type="url" name="imageUrl" id="imageUrl" value={tripToEdit?.imageUrl || ''} required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm bg-gray-50">
+                        <input type="url" name="imageUrl" id="imageUrl" value={tripToEdit?.imageUrl || ''} required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm bg-gray-50" placeholder="https://...">
                     </div>
 
                     <div class="md:col-span-2">
-                        <label for="additionalImages" class="block text-sm font-medium text-gray-700">Añadir Imágenes Adicionales</label>
-                        <input type="file" name="additionalImages" id="additionalImages" multiple accept="image/*" class="mt-1 block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100">
-                        <p class="mt-1 text-xs text-gray-500">Puedes seleccionar múltiples archivos a la vez.</p>
+                        <label for="additionalImageUrls" class="block text-sm font-medium text-gray-700">Añadir URLs de Imágenes Adicionales</label>
+                        <textarea name="additionalImageUrls" id="additionalImageUrls" rows="3" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm bg-gray-50" placeholder="https://.../img1.jpg, https://.../img2.png"></textarea>
+                        <p class="mt-1 text-xs text-gray-500">Pega las URLs de las imágenes, separadas por comas o espacios.</p>
                     </div>
 
                     {additionalImagesToEdit.length > 0 && (
@@ -697,9 +603,9 @@ const trips = tripsResult.rows;
                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M10 19a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-4 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm8 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-4-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm4 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-8 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm4-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm4 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-8 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>
                     </div>
                     <div class="pl-6">
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div><label class="block text-sm font-medium text-gray-700">Título del Día</label><input type="text" name="full_day_title" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-50" required></div>
-                            <div><label class="block text-sm font-medium text-gray-700">Imagen del Día</label><input type="file" name="full_day_image_file" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" accept="image/*"><input type="hidden" name="full_day_imageUrl"><p class="current-image-path text-xs text-gray-500 mt-1"></p></div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label class="block text-sm font-medium text-gray-700">Título del Día</label><input type="text" name="full_day_title" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-50" required></div><div>
+                                <label class="block text-sm font-medium text-gray-700">URL de la Imagen del Día</label>
+                                <input type="url" name="full_day_imageUrl" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-50" placeholder="https://.../img.jpg"></div>
                             <div class="md:col-span-2"><label class="block text-sm font-medium text-gray-700">Descripción del Día</label><textarea name="full_day_description" rows="5" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-50"></textarea></div>
                         </div>
                         <button type="button" class="remove-full-day-btn absolute top-2 right-2 text-red-500 hover:text-red-700 font-bold p-2">&times;</button>
@@ -720,10 +626,8 @@ const trips = tripsResult.rows;
                                 <input type="text" name="day_title" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-50" required>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700">Subir Video</label>
-                                <input type="file" name="day_video_file" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100" accept="video/*">
-                                <input type="hidden" name="day_videoUrl">
-                                <p class="current-video-path text-xs text-gray-500 mt-1"></p>
+                                <label class="block text-sm font-medium text-gray-700">URL del Video</label>
+                                <input type="url" name="day_videoUrl" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-50" placeholder="https://.../video.mp4">
                             </div>
                             <div class="md:col-span-2">
                                 <label class="block text-sm font-medium text-gray-700">Slogan / Frase principal</label>
@@ -993,11 +897,7 @@ const trips = tripsResult.rows;
               <!-- Formulario para añadir/editar miembro -->
               <div class="md:col-span-1">
                 <h3 class="text-xl font-semibold text-primary mb-4">{staffToEdit ? 'Editar Miembro' : 'Añadir Nuevo Miembro'}</h3>
-                <form
-                  method="POST"
-                  enctype="multipart/form-data"                  
-                  class="space-y-4"
-                >
+                <form method="POST" class="space-y-4">
                   <input type="hidden" name="intent" value={staffToEdit ? 'update_staff' : 'add_staff'}>
                   {staffToEdit && <input type="hidden" name="staff_id" value={staffToEdit.id} />}
                   <div>
@@ -1013,10 +913,9 @@ const trips = tripsResult.rows;
                     <textarea name="staff_description" id="staff_description" rows="4" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm bg-gray-50">{staffToEdit?.description || ''}</textarea>
                   </div>
                   <div>
-                    <label for="staff_image" class="block text-sm font-medium text-gray-700">Foto</label>
-                    <input type="file" name="staff_image" id="staff_image" accept="image/*" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" required={!staffToEdit}>
-                    {staffToEdit && <input type="hidden" name="existing_imageUrl" value={staffToEdit.imageUrl} />}
-                    {staffToEdit?.imageUrl && <p class="text-xs text-gray-500 mt-1">Dejar vacío para conservar la imagen actual: <a href={staffToEdit.imageUrl} target="_blank" class="text-blue-600 hover:underline">ver actual</a></p>}
+                    <label for="staff_imageUrl" class="block text-sm font-medium text-gray-700">URL de la Foto</label>
+                    <input type="url" name="staff_imageUrl" id="staff_imageUrl" value={staffToEdit?.imageUrl || ''} required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm bg-gray-50" placeholder="https://...">
+                    {staffToEdit?.imageUrl && <p class="text-xs text-gray-500 mt-1">URL actual: <a href={staffToEdit.imageUrl} target="_blank" class="text-blue-600 hover:underline">{staffToEdit.imageUrl}</a></p>}
                   </div>
                   <div class="flex space-x-2 pt-2">
                     <button type="submit" class="flex-grow inline-flex justify-center rounded-md border border-transparent bg-primary py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-opacity-90">{staffToEdit ? 'Actualizar' : 'Añadir'}</button>
@@ -1052,20 +951,20 @@ const trips = tripsResult.rows;
                               <p class="font-semibold text-gray-800">{member.name}</p>
                               <p class="text-sm text-gray-500">{member.position}</p>
                             </div>
-                        </div>
-                      </div>
-                      <div class="flex items-center space-x-4">
-                        <a href={`/admin?edit_staff=${member.id}#staff`} class="text-blue-600 hover:underline text-sm font-semibold">Editar</a>
-                        <form method="POST">
-                          <input type="hidden" name="intent" value="delete_staff" />
-                          <input type="hidden" name="staff_id" value={member.id} />
-                          <button type="submit" class="text-red-600 hover:underline text-sm font-semibold" onclick="return confirm('¿Estás seguro de que quieres eliminar a este miembro?');">Eliminar</button>
-                        </form>
-                      </div>
-                    </li>
-                  ))}
+                          </div>
+                          <div class="flex items-center space-x-4">
+                            <a href={`/admin?edit_staff=${member.id}#staff`} class="text-blue-600 hover:underline text-sm font-semibold">Editar</a>
+                            <form method="POST">
+                              <input type="hidden" name="intent" value="delete_staff" />
+                              <input type="hidden" name="staff_id" value={member.id} />
+                              <button type="submit" class="text-red-600 hover:underline text-sm font-semibold" onclick="return confirm('¿Estás seguro de que quieres eliminar a este miembro?');">Eliminar</button>
+                            </form>
+                          </div>
+                        </li>
+                      ))}
                     </ul>
                 </form>
+              </div>
             </div>
           </section>
         </div>
@@ -1087,7 +986,6 @@ const trips = tripsResult.rows;
   .sortable-header.sort-asc .sort-indicator::after { border-bottom: 4px solid currentColor; opacity: 1; }
   .sortable-header.sort-desc .sort-indicator::after { border-top: 4px solid currentColor; opacity: 1; }
 
-  /* Estilos para el marcador del desplegable de categorías */
   details > summary {
     list-style: none;
   }
@@ -1105,7 +1003,6 @@ const trips = tripsResult.rows;
     transform: rotate(-180deg);
   }
 
-  /* Estilos para las pestañas activas/inactivas */
   .tab-button {
     @apply border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300;
   }
@@ -1113,7 +1010,6 @@ const trips = tripsResult.rows;
     @apply border-primary text-primary;
   }
 
-  /* Estilos para el drag-and-drop */
   .sortable-ghost {
     opacity: 0.4;
     background: #c8ebfb;
@@ -1124,11 +1020,6 @@ const trips = tripsResult.rows;
 </style>
 
 <script define:vars={{ allLocalities: localities, selectedLocality: tripToEdit?.locality_id, initialCountryId: countryOfTripToEdit, tripToEdit: tripToEdit }}>
-  // =================================================================================
-  // FUNCIONES DE CONFIGURACIÓN
-  // Se definen aquí para que estén disponibles globalmente dentro del script.
-  // =================================================================================
-
   function createDayElement(dayData = {}, container, template) {
       const clone = template.content.cloneNode(true);
       const dayElement = clone.querySelector('.itinerary-day-item');
@@ -1136,13 +1027,7 @@ const trips = tripsResult.rows;
       dayElement.querySelector('[name="day_title"]').value = dayData.title || '';
       dayElement.querySelector('[name="day_slogan"]').value = dayData.slogan || '';
       dayElement.querySelector('[name="day_points"]').value = dayData.points || '';
-      
-      const videoUrlInput = dayElement.querySelector('[name="day_videoUrl"]');
-      const currentVideoPath = dayElement.querySelector('.current-video-path');
-      if (dayData.videoUrl) {
-          videoUrlInput.value = dayData.videoUrl;
-          currentVideoPath.textContent = `Video actual: ${dayData.videoUrl}`;
-      }
+      dayElement.querySelector('[name="day_videoUrl"]').value = dayData.videoUrl || '';
 
       dayElement.querySelector('.remove-day-btn').addEventListener('click', () => {
           dayElement.remove();
@@ -1157,13 +1042,7 @@ const trips = tripsResult.rows;
 
       dayElement.querySelector('[name="full_day_title"]').value = dayData.title || '';
       dayElement.querySelector('[name="full_day_description"]').value = dayData.description || '';
-      
-      const imageUrlInput = dayElement.querySelector('[name="full_day_imageUrl"]');
-      const currentImagePath = dayElement.querySelector('.current-image-path');
-      if (dayData.imageUrl) {
-          imageUrlInput.value = dayData.imageUrl;
-          currentImagePath.textContent = `Imagen actual: ${dayData.imageUrl}`;
-      }
+      dayElement.querySelector('[name="full_day_imageUrl"]').value = dayData.imageUrl || '';
 
       dayElement.querySelector('.remove-full-day-btn').addEventListener('click', () => dayElement.remove());
       container.appendChild(clone);
@@ -1226,14 +1105,9 @@ const trips = tripsResult.rows;
     setActiveTab(initialTabId);
   }
 
-  // =================================================================================
-  // FUNCIÓN DE INICIALIZACIÓN PRINCIPAL
-  // Se encarga de encontrar los elementos en el DOM y añadir los event listeners.
-  // =================================================================================
   function initializeAdminPanel() {
     const tripForm = document.getElementById('trip-form');
     if (tripForm) {
-      // --- Itinerario Interactivo ---
       const itineraryContainer = document.getElementById('itinerary-days-container');
       const addDayBtn = document.getElementById('add-day-btn');
       const itineraryTemplate = document.getElementById('itinerary-day-template');
@@ -1256,7 +1130,6 @@ const trips = tripsResult.rows;
         }
       }
 
-      // --- Itinerario Detallado ---
       const fullItineraryContainer = document.getElementById('full-itinerary-days-container');
       const addFullDayBtn = document.getElementById('add-full-day-btn');
       const fullTemplate = document.getElementById('full-itinerary-day-template');
@@ -1278,7 +1151,6 @@ const trips = tripsResult.rows;
         }
       }
 
-      // --- Selectores de País/Localidad ---
       const countrySelect = tripForm.querySelector('#country');
       const localitySelect = tripForm.querySelector('#locality');
       const localityWrapper = document.getElementById('locality-wrapper');
@@ -1306,18 +1178,15 @@ const trips = tripsResult.rows;
       }
     }
 
-    // --- Orden del Staff ---
     const staffOrderForm = document.getElementById('staff-order-form');
     if (staffOrderForm) {
         staffOrderForm.addEventListener('submit', () => {
-            // Actualizamos el valor del input oculto con el orden actual
             const staffListContainer = document.getElementById('staff-list-container');
             if (staffListContainer) {
                 const orderedIds = Array.from(staffListContainer.querySelectorAll('.staff-member-item')).map(item => item.dataset.id);
                 const hiddenInput = document.getElementById('staff-order-input');
                 if (hiddenInput) hiddenInput.value = orderedIds.join(',');
             }
-            // Mostramos el indicador de carga en el botón
             const saveBtn = staffOrderForm.querySelector('button[type="submit"]');
             saveBtn.disabled = true;
             saveBtn.querySelector('.spinner')?.classList.remove('hidden');
@@ -1325,34 +1194,25 @@ const trips = tripsResult.rows;
         });
     }
 
-    // --- Inicializar Pestañas y Drag & Drop ---
     setupAdminTabs();
     setupDragAndDrop();
 
-    // Manejo de mensajes de éxito/error para que desaparezcan
     const formMessageElement = document.querySelector('[role="alert"]');
     if (formMessageElement) {
-        // Limpiamos la URL inmediatamente para que el mensaje no reaparezca en un refresco manual
-        // y no interfiera con otras acciones del formulario.
         const url = new URL(window.location.href);
         if (url.searchParams.has('success') || url.searchParams.has('error')) {
             window.history.replaceState({}, document.title, '/admin' + window.location.hash);
         }
-        // Hacemos que el mensaje desaparezca con una transición suave después de unos segundos
         setTimeout(() => {
             formMessageElement.style.transition = 'opacity 0.5s ease, transform 0.5s ease, margin-top 0.5s ease';
             formMessageElement.style.opacity = '0';
             formMessageElement.style.transform = 'translateY(-20px)';
             formMessageElement.style.marginTop = '-1rem';
-            setTimeout(() => formMessageElement.remove(), 500); // Eliminar del DOM tras la animación
-        }, 4500); // El mensaje empieza a desaparecer a los 4.5 segundos
+            setTimeout(() => formMessageElement.remove(), 500);
+        }, 4500);
     }
   }
 
-  // =================================================================================
-  // EJECUCIÓN
-  // Se asegura que el script se ejecute en la carga inicial y en cada transición de página.
-  // =================================================================================
   document.addEventListener('astro:page-load', initializeAdminPanel);
   initializeAdminPanel();
 </script>
