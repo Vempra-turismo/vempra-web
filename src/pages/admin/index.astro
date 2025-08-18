@@ -11,8 +11,9 @@ cloudinary.config({
     secure: true,
 });
 
+type UploadImageFn = (file: File, folder: string) => Promise<string>;
 // --- Helper para subir imagen a Cloudinary ---
-const uploadImage = async (file: File, folder: string): Promise<string> => {
+const uploadImage: UploadImageFn = async (file, folder) => {
     if (!file || file.size === 0) return '';
     try {
         const arrayBuffer = await file.arrayBuffer();
@@ -27,23 +28,32 @@ const uploadImage = async (file: File, folder: string): Promise<string> => {
         return uploadResult.secure_url;
     } catch (e) {
         console.error(`Error al subir la imagen a Cloudinary (folder: ${folder}):`, e);
-        throw new Error(`Error al procesar la imagen: ${(e as Error).message}`);
+        const message = e instanceof Error ? e.message : String(e);
+        throw new Error(`Error al procesar la imagen: ${message}`);
     }
 };
-
 
 // --- Proteger la página ---
 if (!Astro.cookies.has('session')) {
   return Astro.redirect('/login');
 }
 
+type FormMessage = { type: 'success' | 'error'; text: string };
+let formMessage: FormMessage | null = null;
+
 // --- Obtener datos para los selectores del formulario ---
-const countries = (await db.execute("SELECT id, name FROM countries ORDER BY name")).rows;
-const localities = (await db.execute("SELECT id, name, country_id FROM localities ORDER BY name")).rows;
-const tags = (await db.execute("SELECT id, name FROM tags ORDER BY name")).rows;
-const departures = (await db.execute("SELECT id, name FROM departures ORDER BY name")).rows;
-const staff = (await db.execute("SELECT * FROM staff ORDER BY sort_order, name")).rows;
-let formMessage: { type: 'success' | 'error'; text: string } | null = null;
+let countries: any[] = [], localities: any[] = [], tags: any[] = [], departures: any[] = [], staff: any[] = [];
+
+try {
+    countries = (await db.execute("SELECT id, name FROM countries ORDER BY name")).rows;
+    localities = (await db.execute("SELECT id, name, country_id FROM localities ORDER BY name")).rows;
+    tags = (await db.execute("SELECT id, name FROM tags ORDER BY name")).rows;
+    departures = (await db.execute("SELECT id, name FROM departures ORDER BY name")).rows;
+    staff = (await db.execute("SELECT * FROM staff ORDER BY sort_order, name")).rows;
+} catch (e) {
+    console.error("Error al cargar datos iniciales desde la base de datos:", e);
+    formMessage = { type: 'error', text: 'No se pudieron cargar los datos necesarios para el panel. Revisa la conexión con la base de datos.' };
+}
 
 // --- Lógica para mostrar mensajes de éxito/error desde la redirección ---
 const successMessage = Astro.url.searchParams.get('success');
@@ -144,7 +154,9 @@ if (Astro.request.method === 'POST') {
         try {
           await db.execute({ sql: "DELETE FROM countries WHERE id = ?", args: [categoryId] });
         } catch (e) {
-          console.error("Error al eliminar país (probablemente en uso):", (e as Error).message);
+          const message = e instanceof Error ? e.message : String(e);
+          console.error("Error al eliminar país (probablemente en uso):", message);
+          formMessage = { type: 'error', text: 'No se pudo eliminar el país. Es posible que esté siendo utilizado en algún viaje.' };
         }
       }
       break;
@@ -154,7 +166,9 @@ if (Astro.request.method === 'POST') {
         try {
           await db.execute({ sql: "DELETE FROM localities WHERE id = ?", args: [categoryId] });
         } catch (e) {
-          console.error("Error al eliminar localidad (probablemente en uso):", (e as Error).message);
+          const message = e instanceof Error ? e.message : String(e);
+          console.error("Error al eliminar localidad (probablemente en uso):", message);
+          formMessage = { type: 'error', text: 'No se pudo eliminar la localidad. Es posible que esté siendo utilizada en algún viaje.' };
         }
       }
       break;
@@ -192,7 +206,9 @@ if (Astro.request.method === 'POST') {
         try {
           await db.execute({ sql: "DELETE FROM departures WHERE id = ?", args: [categoryId] });
         } catch (e) {
-          console.error("Error al eliminar salida (probablemente en uso):", (e as Error).message);
+          const message = e instanceof Error ? e.message : String(e);
+          console.error("Error al eliminar salida (probablemente en uso):", message);
+          formMessage = { type: 'error', text: 'No se pudo eliminar la salida. Es posible que esté siendo utilizada en algún viaje.' };
         }
       }
       break;
@@ -292,10 +308,11 @@ if (Astro.request.method === 'POST') {
         let currentTripId = tripId;
         if (isNew) {
             const result = await db.execute({
-                sql: `INSERT INTO trips (title, slogan, url, price, days, generalDetails, imageUrl, terms_conditions, travel_type, locality_id, season_year, season_name, itinerary, full_itinerary, hotels_info, flights_info, departure_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+                sql: `INSERT INTO trips (title, slogan, url, price, days, generalDetails, imageUrl, terms_conditions, travel_type, locality_id, season_year, season_name, itinerary, full_itinerary, hotels_info, flights_info, departure_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 args: Object.values(tripData)
             });
-            currentTripId = result.rows[0].id!.toString();
+            // Usamos lastInsertRowid para obtener el ID del viaje recién creado.
+            currentTripId = result.lastInsertRowid?.toString();
         } else {
             await db.execute({
                 sql: `UPDATE trips SET title = ?, slogan = ?, url = ?, price = ?, days = ?, generalDetails = ?, imageUrl = ?, terms_conditions = ?, travel_type = ?, locality_id = ?, season_year = ?, season_name = ?, itinerary = ?, full_itinerary = ?, hotels_info = ?, flights_info = ?, departure_id = ? WHERE id = ?`,
@@ -370,7 +387,8 @@ if (Astro.request.method === 'POST') {
     }
   } catch (e) {
     console.error("Ha ocurrido un error procesando el formulario:", e);
-    formMessage = { type: 'error', text: `Error del servidor: ${(e as Error).message}` };
+    const message = e instanceof Error ? e.message : String(e);
+    formMessage = { type: 'error', text: `Error del servidor: ${message}` };
   }
 
   if (formMessage && formMessage.type === 'success') {
@@ -478,7 +496,7 @@ const trips = tripsResult.rows;
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js" is:inline></script>
       <!-- Contenedor para mostrar mensajes de éxito o error -->
       {formMessage && (
-        <div class:list={[ 
+        <div class:list={[
             "px-4 py-3 rounded-lg relative mb-6 border text-center",
             { 'bg-red-100 border-red-400 text-red-700': formMessage.type === 'error' },
             { 'bg-green-100 border-green-400 text-green-700': formMessage.type === 'success' }
