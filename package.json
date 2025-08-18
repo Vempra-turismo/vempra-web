@@ -11,10 +11,10 @@
   },
   "dependencies": {
     "@astrojs/tailwind": "^6.0.2",
-    "@astrojs/vercel": "^8.2.5",
+    "@astrojs/vercel": "^8.2.6",
     "@libsql/client": "^0.15.10",
     "@vercel/blob": "^1.1.1",
-    "astro": "^5.12.5",
+    "astro": "^5.13.2",
     "astro-icon": "^1.1.5",
     "cloudinary": "^2.7.0",
     "resend": "^4.7.0",
