@@ -3,20 +3,33 @@ import Layout from '@/layouts/Layout.astro';
 import { Icon } from 'astro-icon/components';
 import TripsGrid from '@/components/TripsGrid.astro';
 import PromoSlider from '@/components/PromoSlider.astro';
-import db from '@/lib/turso';
+import TripCard from '@/components/TripCard.astro'; // Asumo que tienes un componente así
 
-const { rows: popularTrips } = await db.execute("SELECT * FROM trips ORDER BY id DESC LIMIT 8");
+// FORMA CORRECTA: Obtener datos desde nuestra propia API
+let popularTrips = [];
+try {
+	// Corregido: Usar la API de destinos que ya existe.
+	const popularTripsResponse = await fetch(new URL('/api/destinos', Astro.url.origin));
+	if (popularTripsResponse.ok) {
+		popularTrips = await popularTripsResponse.json();
+	} else {
+		console.error("Failed to fetch popular trips:", popularTripsResponse.status, await popularTripsResponse.text());
+	}
+} catch (e) {
+	console.error("Error fetching popular trips:", e);
+}
 
-const { rows: promoTrips } = await db.execute({
-    sql: `
-        SELECT t.* FROM trips t
-        JOIN trip_tags tt ON t.id = tt.trip_id
-        JOIN tags ON tt.tag_id = tags.id
-        WHERE tags.name = 'Promocion'
-        ORDER BY t.id DESC
-    `,
-    args: []
-});
+let promoTrips = [];
+try {
+	const promoTripsResponse = await fetch(new URL('/api/promo-trips', Astro.url.origin));
+	if (promoTripsResponse.ok) {
+		promoTrips = await promoTripsResponse.json();
+	} else {
+		console.error("Failed to fetch promo trips:", promoTripsResponse.status, await promoTripsResponse.text());
+	}
+} catch (e) {
+	console.error("Error fetching promo trips:", e);
+}
 ---
 
 <Layout 

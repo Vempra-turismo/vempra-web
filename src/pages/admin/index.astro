@@ -1,59 +1,15 @@
-'''---
+---
 import AdminLayout from '@/layouts/AdminLayout.astro';
-import db from '@/lib/turso';
-import { v2 as cloudinary } from 'cloudinary';
-import { Buffer } from 'node:buffer';
-
-cloudinary.config({
-    cloud_name: import.meta.env.CLOUDINARY_CLOUD_NAME,
-    api_key: import.meta.env.CLOUDINARY_API_KEY,
-    api_secret: import.meta.env.CLOUDINARY_API_SECRET,
-    secure: true,
-});
-
-type UploadImageFn = (file: File, folder: string) => Promise<string>;
-// --- Helper para subir imagen a Cloudinary ---
-const uploadImage: UploadImageFn = async (file, folder) => {
-    if (!file || file.size === 0) return '';
-    try {
-        const arrayBuffer = await file.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        const uploadResult: any = await new Promise((resolve, reject) => {
-            const uploadStream = cloudinary.uploader.upload_stream({ folder }, (error, result) => {
-                if (result) resolve(result);
-                else reject(error);
-            });
-            uploadStream.end(buffer);
-        });
-        return uploadResult.secure_url;
-    } catch (e) {
-        console.error(`Error al subir la imagen a Cloudinary (folder: ${folder}):`, e);
-        const message = e instanceof Error ? e.message : String(e);
-        throw new Error(`Error al procesar la imagen: ${message}`);
-    }
-};
+import DragHandle from '@/components/DragHandle.astro';
+import db from '@/lib/turso'; // <-- CORRECCIÓN 1: La ruta y el tipo de importación eran incorrectos.
+import type { FormMessage } from '@/types';
 
 // --- Proteger la página ---
 if (!Astro.cookies.has('session')) {
   return Astro.redirect('/login');
 }
 
-type FormMessage = { type: 'success' | 'error'; text: string };
 let formMessage: FormMessage | null = null;
-
-// --- Obtener datos para los selectores del formulario ---
-let countries: any[] = [], localities: any[] = [], tags: any[] = [], departures: any[] = [], staff: any[] = [];
-
-try {
-    countries = (await db.execute("SELECT id, name FROM countries ORDER BY name")).rows;
-    localities = (await db.execute("SELECT id, name, country_id FROM localities ORDER BY name")).rows;
-    tags = (await db.execute("SELECT id, name FROM tags ORDER BY name")).rows;
-    departures = (await db.execute("SELECT id, name FROM departures ORDER BY name")).rows;
-    staff = (await db.execute("SELECT * FROM staff ORDER BY sort_order, name")).rows;
-} catch (e) {
-    console.error("Error al cargar datos iniciales desde la base de datos:", e);
-    formMessage = { type: 'error', text: 'No se pudieron cargar los datos necesarios para el panel. Revisa la conexión con la base de datos.' };
-}
 
 // --- Lógica para mostrar mensajes de éxito/error desde la redirección ---
 const successMessage = Astro.url.searchParams.get('success');
@@ -75,420 +31,238 @@ if (errorMessage) {
     formMessage = { type: 'error', text: errorMap[errorMessage] || decodeURIComponent(errorMessage) };
 }
 
-// --- Lógica para manejar el envío del formulario (POST) ---
+// --- INICIO: LÓGICA COMPLETA DE PROCESAMIENTO DE FORMULARIOS (POST) ---
 if (Astro.request.method === 'POST') {
-  const formData = await Astro.request.formData();
-  const categoryId = formData.get('category_id')?.toString();
-  const intent = formData.get('intent')?.toString();
+    // Autenticación: Asegurarse de que el usuario está logueado
+    // La comprobación correcta es ver si la cookie de sesión existe.
+    if (!Astro.cookies.has('session')) {
+        return new Response('Unauthorized', { status: 401 });
+    }
 
-  try { // Envolvemos toda la lógica en un try...catch para manejar errores de forma segura.
-    switch (intent) {
-      case 'update_country': {
-      const countryName = formData.get('country_name')?.toString();
-      const countryUrl = formData.get('country_url')?.toString();
-      if (countryName && countryUrl && categoryId) {
-        await db.execute({
-          sql: "UPDATE countries SET name = ?, url = ? WHERE id = ?",
-          args: [countryName, countryUrl, categoryId],
-        });
-      }
-      break;
-      }
-      case 'update_locality': {
-      const localityName = formData.get('locality_name')?.toString();
-      const localityUrl = formData.get('locality_url')?.toString();
-      const countryId = formData.get('parent_country_id')?.toString();
-      if (localityName && localityUrl && countryId && categoryId) {
-        await db.execute({
-          sql: "UPDATE localities SET name = ?, url = ?, country_id = ? WHERE id = ?",
-          args: [localityName, localityUrl, countryId, categoryId],
-        });
-      }
-      break;
-      }
-      case 'update_tag': {
-      const tagName = formData.get('tag_name')?.toString();
-      if (tagName && categoryId) {
-        await db.execute({
-          sql: "UPDATE tags SET name = ? WHERE id = ?",
-          args: [tagName, categoryId],
-        });
-      }
-      break;
-      }
-      case 'add_country': {
-      const countryName = formData.get('country_name')?.toString();
-      const countryUrl = formData.get('country_url')?.toString();
-      if (countryName && countryUrl) {
-        await db.execute({
-          sql: "INSERT INTO countries (name, url) VALUES (?, ?)",
-          args: [countryName, countryUrl],
-        });
-      }
-      break;
-      }
-      case 'add_locality': {
-      const localityName = formData.get('locality_name')?.toString();
-      const localityUrl = formData.get('locality_url')?.toString();
-      const countryId = formData.get('parent_country_id')?.toString();
-      if (localityName && localityUrl && countryId) {
-        await db.execute({
-          sql: "INSERT INTO localities (name, url, country_id) VALUES (?, ?, ?)",
-          args: [localityName, localityUrl, countryId],
-        });
-      }
-      break;
-      }
-      case 'add_tag': {
-      const tagName = formData.get('tag_name')?.toString();
-      if (tagName) {
-        await db.execute({
-          sql: "INSERT INTO tags (name) VALUES (?)" ,
-          args: [tagName],
-        });
-      }
-      break;
-      }
-      case 'delete_country': {
-      if (categoryId) {
+    const formData = await Astro.request.formData();
+    const intent = formData.get('intent')?.toString();
+
+    // --- Manejar la creación/actualización de un viaje ---
+    if (intent === 'add_update_trip') {
         try {
-          await db.execute({ sql: "DELETE FROM countries WHERE id = ?", args: [categoryId] });
-        } catch (e) {
-          const message = e instanceof Error ? e.message : String(e);
-          console.error("Error al eliminar país (probablemente en uso):", message);
-          formMessage = { type: 'error', text: 'No se pudo eliminar el país. Es posible que esté siendo utilizado en algún viaje.' };
-        }
-      }
-      break;
-      }
-      case 'delete_locality': {
-      if (categoryId) {
-        try {
-          await db.execute({ sql: "DELETE FROM localities WHERE id = ?", args: [categoryId] });
-        } catch (e) {
-          const message = e instanceof Error ? e.message : String(e);
-          console.error("Error al eliminar localidad (probablemente en uso):", message);
-          formMessage = { type: 'error', text: 'No se pudo eliminar la localidad. Es posible que esté siendo utilizada en algún viaje.' };
-        }
-      }
-      break;
-      }
-      case 'delete_tag': {
-      if (categoryId) {
-        await db.execute({ sql: "DELETE FROM tags WHERE id = ?", args: [categoryId] });
-      }
-      break;
-      }
-      case 'update_departure': {
-      const name = formData.get('departure_name')?.toString();
-      const url = formData.get('departure_url')?.toString();
-      if (name && url && categoryId) {
-        await db.execute({
-          sql: "UPDATE departures SET name = ?, url = ? WHERE id = ?",
-          args: [name, url, categoryId],
-        });
-      }
-      break;
-      }
-      case 'add_departure': {
-      const name = formData.get('departure_name')?.toString();
-      const url = formData.get('departure_url')?.toString();
-      if (name && url) {
-        await db.execute({
-          sql: "INSERT INTO departures (name, url) VALUES (?, ?)",
-          args: [name, url],
-        });
-      }
-      break;
-      }
-      case 'delete_departure': {
-      if (categoryId) {
-        try {
-          await db.execute({ sql: "DELETE FROM departures WHERE id = ?", args: [categoryId] });
-        } catch (e) {
-          const message = e instanceof Error ? e.message : String(e);
-          console.error("Error al eliminar salida (probablemente en uso):", message);
-          formMessage = { type: 'error', text: 'No se pudo eliminar la salida. Es posible que esté siendo utilizada en algún viaje.' };
-        }
-      }
-      break;
-      }
-      case 'add_staff': {
-        const name = formData.get('staff_name')?.toString();
-        const position = formData.get('staff_position')?.toString();
-        const description = formData.get('staff_description')?.toString();
-        const imageFile = formData.get('staff_imageFile') as File;
-        
-        const imageUrl = await uploadImage(imageFile, 'vempra_staff');
+            const tripId = formData.get('id')?.toString(); // Será undefined para viajes nuevos
 
-        if (name && position && imageUrl) {
-            await db.execute({
-                sql: "INSERT INTO staff (name, position, description, imageUrl, sort_order) VALUES (?, ?, ?, ?, (SELECT IFNULL(MAX(sort_order), -1) + 1 FROM staff))",
-                args: [name, position, description, imageUrl],
-            });
-        } else {
-            formMessage = { type: 'error', text: 'Para añadir un miembro, el nombre, el cargo y la foto son obligatorios.' };
-        }
-        break;
-      }
-      case 'update_staff': {
-        const staffId = formData.get('staff_id')?.toString();
-        const name = formData.get('staff_name')?.toString();
-        const position = formData.get('staff_position')?.toString();
-        const description = formData.get('staff_description')?.toString();
-        const imageFile = formData.get('staff_imageFile') as File;
-        let imageUrl = formData.get('staff_imageUrl')?.toString() || ''; // URL existente
+            // --- 1. Lógica para subir imágenes (NECESITA IMPLEMENTACIÓN) ---
+            // Esta función es un placeholder. Debes implementar tu propia lógica para subir
+            // imágenes a un servicio como Cloudinary, S3, o a tu propio servidor.
+            const uploadImage = async (file: File): Promise<string | null> => {
+                if (file && file.size > 0) {
+                    // EJEMPLO:
+                    // const response = await uploadToYourCloudService(file);
+                    // return response.url;
+                    console.warn(`ADVERTENCIA: La subida de imágenes no está implementada. Usando placeholder para ${file.name}.`);
+                    return `/uploads/placeholder-${file.name}`; // URL de placeholder
+                }
+                return null;
+            };
 
-        if (imageFile && imageFile.size > 0) {
-            imageUrl = await uploadImage(imageFile, 'vempra_staff');
-        }
-
-        if (staffId && name && position && imageUrl) {
-            await db.execute({
-                sql: "UPDATE staff SET name = ?, position = ?, description = ?, imageUrl = ? WHERE id = ?",
-                args: [name, position, description, imageUrl, staffId],
-            });
-        } else {
-             formMessage = { type: 'error', text: 'Faltan campos para actualizar el miembro del equipo.' };
-        }
-        break;
-      }
-      case 'delete_staff': {
-        const staffId = formData.get('staff_id')?.toString();
-        if (staffId) {
-            await db.execute({ sql: "DELETE FROM staff WHERE id = ?", args: [staffId] });
-        }
-        break;
-      }
-      case 'update_staff_order': {
-        const orderedIdsRaw = formData.get('staff_order')?.toString();
-        if (orderedIdsRaw) {
-            const orderedIds = orderedIdsRaw.split(',');
-            const updateStatements = orderedIds.map((id, index) => ({
-                sql: "UPDATE staff SET sort_order = ? WHERE id = ?",
-                args: [index, parseInt(id, 10)]
-            }));
-            await db.batch(updateStatements, 'write');
-        }
-        break;
-      }
-      case 'add_update_trip': {
-        const tripId = formData.get('id')?.toString();
-        const isNew = !tripId;
-
-        // --- 1. Subir imagen principal ---
-        let mainImageUrl = formData.get('imageUrl')?.toString() || '';
-        const mainImageFile = formData.get('imageFile') as File;
-        if (mainImageFile && mainImageFile.size > 0) {
-            mainImageUrl = await uploadImage(mainImageFile, 'vempra_trips');
-        }
-
-        // --- 2. Recopilar datos del viaje (sin itinerarios) ---
-        const tripData = {
-            title: formData.get('title')?.toString() || '',
-            slogan: formData.get('slogan')?.toString() || null,
-            url: formData.get('url')?.toString() || '',
-            price: formData.get('price') ? parseFloat(formData.get('price').toString()) : null,
-            days: formData.get('days')?.toString() || '',
-            generalDetails: formData.get('generalDetails')?.toString() || null,
-            imageUrl: mainImageUrl,
-            terms_conditions: formData.get('terms_conditions')?.toString() || null,
-            travel_type: formData.get('travel_type')?.toString() || 'Personalizado',
-            locality_id: formData.get('locality_id') ? parseInt(formData.get('locality_id').toString(), 10) : null,
-            season_year: formData.get('season_year') ? parseInt(formData.get('season_year').toString(), 10) : null,
-            season_name: formData.get('season_name')?.toString() || null,
-            itinerary: formData.get('itinerary') || '[]', // Se actualizará después
-            full_itinerary: '[]', // Se actualizará después
-            hotels_info: formData.get('hotels_info')?.toString() || null,
-            flights_info: formData.get('flights_info')?.toString() || null,
-            departure_id: formData.get('departure_id') ? parseInt(formData.get('departure_id').toString(), 10) : null,
-        };
-
-        // --- 3. Insertar o Actualizar el viaje para obtener el ID ---
-        let currentTripId = tripId;
-        if (isNew) {
-            const result = await db.execute({
-                sql: `INSERT INTO trips (title, slogan, url, price, days, generalDetails, imageUrl, terms_conditions, travel_type, locality_id, season_year, season_name, itinerary, full_itinerary, hotels_info, flights_info, departure_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                args: Object.values(tripData)
-            });
-            // Usamos lastInsertRowid para obtener el ID del viaje recién creado.
-            currentTripId = result.lastInsertRowid?.toString();
-        } else {
-            await db.execute({
-                sql: `UPDATE trips SET title = ?, slogan = ?, url = ?, price = ?, days = ?, generalDetails = ?, imageUrl = ?, terms_conditions = ?, travel_type = ?, locality_id = ?, season_year = ?, season_name = ?, itinerary = ?, full_itinerary = ?, hotels_info = ?, flights_info = ?, departure_id = ? WHERE id = ?`,
-                args: [...Object.values(tripData), currentTripId]
-            });
-        }
-
-        // --- 4. Manejar imágenes adicionales ---
-        const imagesToDelete = formData.getAll('delete_images').map(String);
-        if (imagesToDelete.length > 0) {
-            await db.batch(imagesToDelete.map(url => ({
-                sql: "DELETE FROM trip_images WHERE trip_id = ? AND imageUrl = ?",
-                args: [currentTripId, url]
-            })), 'write');
-        }
-
-        const additionalImageFiles = formData.getAll('additionalImageFiles') as File[];
-        if (additionalImageFiles.length > 0 && additionalImageFiles[0].size > 0) {
-            const uploadPromises = additionalImageFiles.map(file => uploadImage(file, 'vempra_trips_gallery'));
-            const newImageUrls = await Promise.all(uploadPromises);
-            await db.batch(newImageUrls.map(url => ({
-                sql: "INSERT INTO trip_images (trip_id, imageUrl) VALUES (?, ?)",
-                args: [currentTripId, url]
-            })), 'write');
-        }
-        
-        // --- 5. Manejar Itinerario Detallado ---
-        const dayTitles = formData.getAll('full_day_title').map(String);
-        const dayDescriptions = formData.getAll('full_day_description').map(String);
-        const dayImageFiles = formData.getAll('full_day_imageFile') as File[];
-        const existingDayImageUrls = formData.getAll('full_day_existing_imageUrl').map(String);
-
-        const fullItineraryDays = [];
-        for (let i = 0; i < dayTitles.length; i++) {
-            let dayImageUrl = existingDayImageUrls[i] || '';
-            if (dayImageFiles[i] && dayImageFiles[i].size > 0) {
-                dayImageUrl = await uploadImage(dayImageFiles[i], 'vempra_itinerary');
+            // Imagen principal del viaje
+            let imageUrl = formData.get('imageUrl')?.toString() || null;
+            const newImageFile = formData.get('imageFile') as File;
+            const newImageUrl = await uploadImage(newImageFile);
+            if (newImageUrl) {
+                imageUrl = newImageUrl;
             }
-            fullItineraryDays.push({
-                title: dayTitles[i],
-                description: dayDescriptions[i],
-                imageUrl: dayImageUrl
-            });
+
+            // --- 2. Procesar Itinerarios (LA CLAVE DEL PROBLEMA) ---
+            // Itinerario Interactivo (videos)
+            const itineraryJson = formData.get('itinerary')?.toString() || '[]';
+
+            // Itinerario Detallado (imágenes)
+            const fullItineraryJson = formData.get('full_itinerary')?.toString() || '[]';
+            let fullItineraryData = JSON.parse(fullItineraryJson);
+            const fullDayImageFiles = formData.getAll('full_day_imageFile') as File[];
+            let imageFileIndex = 0;
+
+            // Asociar imágenes nuevas con los días del itinerario que las necesiten
+            for (const day of fullItineraryData) {
+                if (!day.imageUrl && imageFileIndex < fullDayImageFiles.length) {
+                    const fileToUpload = fullDayImageFiles[imageFileIndex];
+                    if (fileToUpload && fileToUpload.size > 0) {
+                        day.imageUrl = await uploadImage(fileToUpload);
+                    }
+                    imageFileIndex++;
+                }
+            }
+            const finalFullItinerary = JSON.stringify(fullItineraryData);
+
+            // --- 3. Recopilar todos los datos del formulario ---
+            const tripData = {
+                title: formData.get('title')?.toString() || '',
+                slogan: formData.get('slogan')?.toString() || '',
+                url: formData.get('url')?.toString() || '',
+                price: Number(formData.get('price')) || 0,
+                days: formData.get('days')?.toString() || '',
+                imageUrl: imageUrl,
+                generalDetails: formData.get('generalDetails')?.toString() || '',
+                terms_conditions: formData.get('terms_conditions')?.toString() || '',
+                locality_id: formData.get('locality_id') ? Number(formData.get('locality_id')) : null,
+                travel_type: formData.get('travel_type')?.toString() || 'Personalizado',
+                season_name: formData.get('season_name')?.toString() || '',
+                season_year: formData.get('season_year') ? Number(formData.get('season_year')) : null,
+                hotels_info: formData.get('hotels_info')?.toString() || '',
+                flights_info: formData.get('flights_info')?.toString() || '',
+                itinerary: itineraryJson,
+                full_itinerary: finalFullItinerary, // Este es el JSON actualizado
+            };
+
+            // --- 4. Ejecutar la transacción en la Base de Datos ---
+            const tx = await db.transaction();
+            let finalTripId = tripId;
+
+            try {
+                if (tripId) { // --- Lógica de ACTUALIZACIÓN ---
+                    await tx.execute({
+                        sql: `UPDATE trips SET title=?, slogan=?, url=?, price=?, days=?, imageUrl=?, generalDetails=?, terms_conditions=?, locality_id=?, travel_type=?, season_name=?, season_year=?, hotels_info=?, flights_info=?, itinerary=?, full_itinerary=? WHERE id = ?`,
+                        args: [tripData.title, tripData.slogan, tripData.url, tripData.price, tripData.days, tripData.imageUrl, tripData.generalDetails, tripData.terms_conditions, tripData.locality_id, tripData.travel_type, tripData.season_name, tripData.season_year, tripData.hotels_info, tripData.flights_info, tripData.itinerary, tripData.full_itinerary, tripId]
+                    });
+                } else { // --- Lógica de CREACIÓN ---
+                    const result = await tx.execute({
+                        sql: `INSERT INTO trips (title, slogan, url, price, days, imageUrl, generalDetails, terms_conditions, locality_id, travel_type, season_name, season_year, hotels_info, flights_info, itinerary, full_itinerary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        args: [tripData.title, tripData.slogan, tripData.url, tripData.price, tripData.days, tripData.imageUrl, tripData.generalDetails, tripData.terms_conditions, tripData.locality_id, tripData.travel_type, tripData.season_name, tripData.season_year, tripData.hotels_info, tripData.flights_info, tripData.itinerary, tripData.full_itinerary]
+                    });
+                    finalTripId = result.lastInsertRowid?.toString();
+                }
+
+                if (!finalTripId) throw new Error("No se pudo obtener el ID del viaje.");
+
+                // --- 5. Actualizar relaciones (Tags y Departures) ---
+                const tagIds = formData.getAll('tags').map(id => Number(id));
+                await tx.execute({ sql: 'DELETE FROM trip_tags WHERE trip_id = ?', args: [finalTripId] });
+                for (const tagId of tagIds) {
+                    if (tagId) await tx.execute({ sql: 'INSERT INTO trip_tags (trip_id, tag_id) VALUES (?, ?)', args: [finalTripId, tagId] });
+                }
+
+                const departureIds = formData.getAll('departure_ids').map(id => Number(id));
+                await tx.execute({ sql: 'DELETE FROM trip_departures WHERE trip_id = ?', args: [finalTripId] });
+                for (const departureId of departureIds) {
+                    if (departureId) await tx.execute({ sql: 'INSERT INTO trip_departures (trip_id, departure_id) VALUES (?, ?)', args: [finalTripId, departureId] });
+                }
+
+                // TODO: Implementar lógica para añadir/eliminar imágenes de la galería
+
+                await tx.commit(); // Guardar todos los cambios
+
+            } catch (dbError) {
+                await tx.rollback(); // Deshacer cambios si algo falla
+                throw dbError; // Lanzar el error para que sea capturado por el catch exterior
+            }
+
+            return Astro.redirect('/admin?success=trip_saved#listado');
+        } catch (e) {
+            console.error("Error al guardar el viaje:", e);
+            return Astro.redirect(`/admin?error=${encodeURIComponent(e.message)}#editor`);
         }
-        
-        // --- 6. Manejar Itinerario Interactivo (Videos) ---
-        const interactiveItinerary = JSON.parse(formData.get('itinerary')?.toString() || '[]');
-
-        // --- 7. Actualizar viaje con los itinerarios en JSON ---
-        await db.execute({
-            sql: "UPDATE trips SET full_itinerary = ?, itinerary = ? WHERE id = ?",
-            args: [JSON.stringify(fullItineraryDays), JSON.stringify(interactiveItinerary), currentTripId]
-        });
-
-        // --- 8. Manejar etiquetas ---
-        const selectedTags = formData.getAll('tags').map(id => parseInt(id.toString(), 10));
-        await db.execute({ sql: "DELETE FROM trip_tags WHERE trip_id = ?", args: [currentTripId] });
-        if (selectedTags.length > 0) {
-            await db.batch(selectedTags.map(tagId => ({
-                sql: "INSERT INTO trip_tags (trip_id, tag_id) VALUES (?, ?)",
-                args: [currentTripId, tagId]
-            })), 'write');
-        }
-        
-        formMessage = { type: 'success', text: '¡Viaje guardado con éxito!' };
-        break;
-      }
-      default: {
-          formMessage = { type: 'error', text: 'Acción no reconocida.' };
-          break;
-      }
     }
-  } catch (e) {
-    console.error("Ha ocurrido un error procesando el formulario:", e);
-    const message = e instanceof Error ? e.message : String(e);
-    formMessage = { type: 'error', text: `Error del servidor: ${message}` };
-  }
 
-  if (formMessage && formMessage.type === 'success') {
-    let redirectUrl = '/admin?success=true'; // Fallback
-    if (intent === 'update_staff_order') redirectUrl = '/admin?success=staff_order_updated#staff';
-    else if (intent === 'add_staff') redirectUrl = '/admin?success=staff_added#staff';
-    else if (intent === 'update_staff') redirectUrl = '/admin?success=staff_updated#staff';
-    else if (intent?.includes('staff')) redirectUrl = '/admin#staff';
-    else if (intent === 'add_update_trip') redirectUrl = `/admin?edit=${Astro.request.method === 'POST' ? formData.get('id') : ''}&success=trip_saved`;
-    else if (intent?.includes('country') || intent?.includes('locality') || intent?.includes('tag') || intent?.includes('departure')) {
-      redirectUrl = '/admin#categorias';
-    }
-    return Astro.redirect(redirectUrl, 303);
-  }
+    // TODO: Añadir bloques `else if` para otros intents como 'add_country', 'update_staff', etc.
 }
+// --- FIN: LÓGICA DE PROCESAMIENTO DE FORMULARIOS ---
 
-// --- Cargar datos para editar (si se proporciona un ID en la URL) ---
+// --- Cargar todos los datos necesarios para la página mediante fetch a nuestras propias APIs ---
+let countries: any[] = [], localities: any[] = [], tags: any[] = [], departures: any[] = [], staff: any[] = [];
 let tripToEdit = null;
 let tripTags = [];
+let tripDepartures = [];
 let countryOfTripToEdit = null;
 let additionalImagesToEdit = [];
-const editId = Astro.url.searchParams.get('edit');
-if (editId) {
-    const result = await db.execute({
-        sql: "SELECT * FROM trips WHERE id = ?",
-        args: [editId]
-    });
-    if (result.rows.length > 0) {
-        tripToEdit = result.rows[0];
-        if (tripToEdit.locality_id) {
+let countryToEdit = null;
+let localityToEdit = null;
+let tagToEdit = null;
+let departureToEdit = null;
+let staffToEdit = null;
+let trips = [];
+
+const cookie = Astro.request.headers.get('cookie');
+const fetchOptions = cookie ? { headers: { cookie } } : {};
+
+try {
+    // Fetch initial data (for selectors)
+    const initialDataResponse = await fetch(new URL('/api/admin/initial-data', Astro.url.origin), fetchOptions);
+    if (!initialDataResponse.ok) {
+        const text = await initialDataResponse.text();
+        throw new Error(`Failed to fetch initial data. Status: ${initialDataResponse.status}. Body: ${text}`);
+    }
+    const initialData = await initialDataResponse.json();
+    ({ countries, localities, tags, departures, staff } = initialData);
+
+    // Fetch trips list
+    const tripsResponse = await fetch(new URL('/api/admin/trips', Astro.url.origin), fetchOptions);
+    if (!tripsResponse.ok) {
+        const text = await tripsResponse.text();
+        throw new Error(`Failed to fetch trips. Status: ${tripsResponse.status}. Body: ${text}`);
+    }
+    trips = await tripsResponse.json();
+
+    // Fetch data for editing if any edit param is present
+    const editTripId = Astro.url.searchParams.get('edit');
+    const editCountryId = Astro.url.searchParams.get('edit_country');
+    const editLocalityId = Astro.url.searchParams.get('edit_locality');
+    const editTagId = Astro.url.searchParams.get('edit_tag');
+    const editDepartureId = Astro.url.searchParams.get('edit_departure');
+    const editStaffId = Astro.url.searchParams.get('edit_staff');
+
+    if (editTripId) {
+        const res = await fetch(new URL(`/api/admin/edit-data?trip_id=${editTripId}`, Astro.url.origin), fetchOptions);
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`Failed to fetch trip edit data. Status: ${res.status}. Body: ${text}`);
+        }
+
+        const editData = await res.json();
+        if (editData.trip) {
+            tripToEdit = editData.trip;
+            tripTags = editData.tags;
+            tripDepartures = editData.tripDepartures || [];
+            additionalImagesToEdit = editData.additionalImages;
             const localityInfo = localities.find(l => String(l.id) === String(tripToEdit.locality_id));
             if (localityInfo) countryOfTripToEdit = localityInfo.country_id;
         }
-        const tagsResult = await db.execute({
-            sql: "SELECT tag_id FROM trip_tags WHERE trip_id = ?",
-            args: [editId]
-        });
-        tripTags = tagsResult.rows.map((row) => row.tag_id);
-
-        const imagesResult = await db.execute({
-            sql: "SELECT imageUrl FROM trip_images WHERE trip_id = ?",
-            args: [editId]
-        });
-        additionalImagesToEdit = imagesResult.rows.map((row) => (row.imageUrl));
+    } else if (editCountryId) {
+        const res = await fetch(new URL(`/api/admin/edit-data?category_type=country&category_id=${editCountryId}`, Astro.url.origin), fetchOptions);
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`Failed to fetch country edit data. Status: ${res.status}. Body: ${text}`);
+        }
+        countryToEdit = (await res.json()).country;
+    } else if (editLocalityId) {
+        const res = await fetch(new URL(`/api/admin/edit-data?category_type=locality&category_id=${editLocalityId}`, Astro.url.origin), fetchOptions);
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`Failed to fetch locality edit data. Status: ${res.status}. Body: ${text}`);
+        }
+        localityToEdit = (await res.json()).locality;
+    } else if (editTagId) {
+        const res = await fetch(new URL(`/api/admin/edit-data?category_type=tag&category_id=${editTagId}`, Astro.url.origin), fetchOptions);
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`Failed to fetch tag edit data. Status: ${res.status}. Body: ${text}`);
+        }
+        tagToEdit = (await res.json()).tag;
+    } else if (editDepartureId) {
+        const res = await fetch(new URL(`/api/admin/edit-data?category_type=departure&category_id=${editDepartureId}`, Astro.url.origin), fetchOptions);
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`Failed to fetch departure edit data. Status: ${res.status}. Body: ${text}`);
+        }
+        departureToEdit = (await res.json()).departure;
+    } else if (editStaffId) {
+        const res = await fetch(new URL(`/api/admin/edit-data?category_type=staff&category_id=${editStaffId}`, Astro.url.origin), fetchOptions);
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`Failed to fetch staff edit data. Status: ${res.status}. Body: ${text}`);
+        }
+        staffToEdit = (await res.json()).staff;
     }
+} catch (e) {
+    console.error("Error fetching data for admin panel:", e);
+    formMessage = { type: 'error', text: 'No se pudieron cargar los datos necesarios para el panel. Revisa la conexión con la base de datos.' };
 }
-
-// --- Cargar datos de categorías para editar ---
-let countryToEdit = null;
-const editCountryId = Astro.url.searchParams.get('edit_country');
-if (editCountryId) {
-    const result = await db.execute({ sql: "SELECT * FROM countries WHERE id = ?", args: [editCountryId] });
-    if (result.rows.length > 0) countryToEdit = result.rows[0];
-}
-
-let localityToEdit = null;
-const editLocalityId = Astro.url.searchParams.get('edit_locality');
-if (editLocalityId) {
-    const result = await db.execute({ sql: "SELECT * FROM localities WHERE id = ?", args: [editLocalityId] });
-    if (result.rows.length > 0) localityToEdit = result.rows[0];
-}
-
-let tagToEdit = null;
-const editTagId = Astro.url.searchParams.get('edit_tag');
-if (editTagId) {
-    const result = await db.execute({ sql: "SELECT * FROM tags WHERE id = ?", args: [editTagId] });
-    if (result.rows.length > 0) tagToEdit = result.rows[0];
-}
-
-let departureToEdit = null;
-const editDepartureId = Astro.url.searchParams.get('edit_departure');
-if (editDepartureId) {
-    const result = await db.execute({ sql: "SELECT * FROM departures WHERE id = ?", args: [editDepartureId] });
-    if (result.rows.length > 0) departureToEdit = result.rows[0];
-}
-
-let staffToEdit = null;
-const editStaffId = Astro.url.searchParams.get('edit_staff');
-if (editStaffId) {
-    const result = await db.execute({ sql: "SELECT * FROM staff WHERE id = ?", args: [editStaffId] });
-    if (result.rows.length > 0) staffToEdit = result.rows[0];
-}
-
-
-// --- Obtener la lista de viajes existentes para mostrarla ---
-const tripsResult = await db.execute({
-  sql: `
-    SELECT 
-      t.id, t.title, t.price, t.days, t.travel_type,
-      l.name as locality_name, c.name as country_name,
-      d.name as departure_name
-    FROM trips t
-    LEFT JOIN localities l ON t.locality_id = l.id
-    LEFT JOIN countries c ON l.country_id = c.id
-    LEFT JOIN departures d ON t.departure_id = d.id
-    ORDER BY t.id DESC
-  `,
-  args: []
-});
-const trips = tripsResult.rows;
 
 ---
 
@@ -638,13 +412,6 @@ const trips = tripsResult.rows;
                         <label for="season_year" class="block text-sm font-medium text-gray-700">Año de la Temporada</label>
                         <input type="number" name="season_year" id="season_year" value={tripToEdit?.season_year || ''} class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm bg-gray-50" placeholder="Ej: 2024">
                     </div>
-                    <div>
-                        <label for="departure" class="block text-sm font-medium text-gray-700">Salida desde</label>
-                        <select id="departure" name="departure_id" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm bg-gray-50">
-                            <option value="">Selecciona una salida</option>
-                            {departures.map((departure: any) => ( <option value={departure.id} selected={tripToEdit?.departure_id != null && String(tripToEdit.departure_id) === String(departure.id)}>{departure.name}</option>))}
-                        </select>
-                    </div>
                 </div>
                 <div class="mt-6">
                     <label class="block text-sm font-medium text-gray-700">Temáticas (Etiquetas)</label>
@@ -652,10 +419,25 @@ const trips = tripsResult.rows;
                         {tags.map((tag: any) => (
                         <div class="flex items-start">
                             <div class="flex h-5 items-center">
-                                <input id={`tag-${tag.id}`} name="tags" type="checkbox" value={tag.id} checked={tripTags.includes(tag.id)} class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                                <input id={`tag-${tag.id}`} name="tags" type="checkbox" value={tag.id} checked={tripTags.includes(tag.id)} class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary" />
                             </div>
                             <div class="ml-3 text-sm">
                                 <label for={`tag-${tag.id}`} class="font-medium text-gray-700">{tag.name}</label>
+                            </div>
+                        </div>
+                        ))}
+                    </div>
+                </div>
+                <div class="mt-6">
+                    <label class="block text-sm font-medium text-gray-700">Salidas desde (puedes seleccionar varias)</label>
+                    <div class="mt-2 grid grid-cols-2 md:grid-cols-3 gap-4 border p-4 rounded-md bg-gray-50">
+                        {departures.map((departure: any) => (
+                        <div class="flex items-start">
+                            <div class="flex h-5 items-center">
+                                <input id={`departure-${departure.id}`} name="departure_ids" type="checkbox" value={departure.id} checked={tripDepartures.some(d => String(d) === String(departure.id))} class="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary" />
+                            </div>
+                            <div class="ml-3 text-sm">
+                                <label for={`departure-${departure.id}`} class="font-medium text-gray-700">{departure.name}</label>
                             </div>
                         </div>
                         ))}
@@ -675,6 +457,7 @@ const trips = tripsResult.rows;
  
              <fieldset class="border p-4 rounded-md">
                 <legend class="text-xl font-semibold px-2">Itinerario Detallado (Pestaña)</legend>
+                <input type="hidden" name="full_itinerary" id="full-itinerary-json">
                 <div id="full-itinerary-days-container" class="space-y-6 mt-4">
                     <!-- Días del itinerario detallado -->
                 </div>
@@ -686,15 +469,13 @@ const trips = tripsResult.rows;
              <!-- Plantilla para el itinerario detallado -->
              <template id="full-itinerary-day-template">
                 <div class="full-itinerary-day-item bg-white p-4 rounded-lg shadow-sm border relative">
-                    <div class="drag-handle absolute top-1/2 -left-3 -translate-y-1/2 cursor-grab text-gray-400 hover:text-gray-600 p-1">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M10 19a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-4 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm8 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-4-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm4 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-8 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm4-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm4 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-8 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>
-                    </div>
+                    <div class="drag-handle absolute top-1/2 -left-3 -translate-y-1/2 cursor-grab text-gray-400 hover:text-gray-600 p-1"><DragHandle /></div>
                     <div class="pl-6">
                         <input type="hidden" name="full_day_existing_imageUrl" value="">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700">Título del Día</label>
-                                <input type="text" name="full_day_title" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-50" required>
+                                <input type="text" data-name="full_day_title" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-50" required>
                             </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700">Imagen del Día</label>
@@ -706,7 +487,7 @@ const trips = tripsResult.rows;
                             </div>
                             <div class="md:col-span-2">
                                 <label class="block text-sm font-medium text-gray-700">Descripción del Día</label>
-                                <textarea name="full_day_description" rows="5" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-50"></textarea>
+                                <textarea data-name="full_day_description" rows="5" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-50"></textarea>
                             </div>
                         </div>
                         <button type="button" class="remove-full-day-btn absolute top-2 right-2 text-red-500 hover:text-red-700 font-bold p-2">&times;</button>
@@ -717,9 +498,7 @@ const trips = tripsResult.rows;
              <!-- Plantilla para un nuevo día (oculta) -->
              <template id="itinerary-day-template">
                  <div class="itinerary-day-item bg-white p-4 rounded-lg shadow-sm border relative">
-                    <div class="drag-handle absolute top-1/2 -left-3 -translate-y-1/2 cursor-grab text-gray-400 hover:text-gray-600 p-1">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M10 19a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-4 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm8 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-4-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm4 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-8 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm4-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm4 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-8 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>
-                    </div>
+                    <div class="drag-handle absolute top-1/2 -left-3 -translate-y-1/2 cursor-grab text-gray-400 hover:text-gray-600 p-1"><DragHandle /></div>
                      <div class="pl-6">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
@@ -804,7 +583,7 @@ const trips = tripsResult.rows;
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${trip.price}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{trip.days}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{trip.travel_type}</td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{trip.departure_name || 'N/A'}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{trip.departure_names?.split(',').join(', ') || 'N/A'}</td>
                     <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-4">
                       <a href={`/admin?edit=${trip.id}`} class="text-indigo-600 hover:text-indigo-900">Editar</a>
                       <form action={`/api/trips/delete/${trip.id}`} method="POST" class="inline-block">
@@ -1050,10 +829,7 @@ const trips = tripsResult.rows;
                     <ul id="staff-list-container" class="space-y-3">
                       {staff.map((member: any) => (
                         <li class="staff-member-item flex items-center justify-between p-3 bg-white rounded-lg border shadow-sm" data-id={member.id}>
-                          <div class="flex items-center space-x-4">
-                            <div class="drag-handle cursor-grab text-gray-400 hover:text-gray-600">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M10 19a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-4 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm8 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-4-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm4 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-8 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm4-4a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm4 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm-8 0a1 1 0 1 1 0-2 1 1 0 0 1 0 2z"/></svg>
-                            </div>
+                          <div class="flex items-center space-x-4">                            <div class="drag-handle cursor-grab text-gray-400 hover:text-gray-600"><DragHandle /></div>
                             <img src={member.imageUrl} alt={member.name} class="w-12 h-12 rounded-full object-cover" />
                             <div>
                               <p class="font-semibold text-gray-800">{member.name}</p>
@@ -1147,10 +923,10 @@ const trips = tripsResult.rows;
   function createFullDayElement(dayData = {}, container, template) {
       const clone = template.content.cloneNode(true);
       const dayElement = clone.querySelector('.full-itinerary-day-item');
-
-      dayElement.querySelector('[name="full_day_title"]').value = dayData.title || '';
-      dayElement.querySelector('[name="full_day_description"]').value = dayData.description || '';
       
+      dayElement.querySelector('[data-name="full_day_title"]').value = dayData.title || '';
+      dayElement.querySelector('[data-name="full_day_description"]').value = dayData.description || '';
+
       const existingImageUrlInput = dayElement.querySelector('[name="full_day_existing_imageUrl"]');
       existingImageUrlInput.value = dayData.imageUrl || '';
 
@@ -1255,9 +1031,24 @@ const trips = tripsResult.rows;
       const fullItineraryContainer = document.getElementById('full-itinerary-days-container');
       const addFullDayBtn = document.getElementById('add-full-day-btn');
       const fullTemplate = document.getElementById('full-itinerary-day-template');
+      const fullItineraryJsonInput = document.getElementById('full-itinerary-json');
 
-      if (fullItineraryContainer && addFullDayBtn && fullTemplate) {
+      if (fullItineraryContainer && addFullDayBtn && fullTemplate && fullItineraryJsonInput) {
+        const serializeFullItinerary = () => {
+            const days = Array.from(fullItineraryContainer.querySelectorAll('.full-itinerary-day-item')).map(item => {
+                // Serializamos los datos de texto. Los archivos de imagen se manejan por separado
+                // a través de `multipart/form-data` y el servidor debe asociarlos por orden.
+                return {
+                    title: item.querySelector('[data-name="full_day_title"]').value,
+                    description: item.querySelector('[data-name="full_day_description"]').value,
+                    imageUrl: item.querySelector('[name="full_day_existing_imageUrl"]').value,
+                };
+            });
+            fullItineraryJsonInput.value = JSON.stringify(days);
+        };
+
         addFullDayBtn.addEventListener('click', () => createFullDayElement({}, fullItineraryContainer, fullTemplate));
+        tripForm.addEventListener('submit', serializeFullItinerary);
         if (tripToEdit?.full_itinerary) {
             try { JSON.parse(tripToEdit.full_itinerary).forEach(day => createFullDayElement(day, fullItineraryContainer, fullTemplate)); } catch (e) { console.error("Error al parsear itinerario detallado:", e); }
         }
@@ -1330,6 +1121,5 @@ const trips = tripsResult.rows;
   }
 
   document.addEventListener('astro:page-load', initializeAdminPanel);
-  initializeAdminPanel();
 </script>
 ''

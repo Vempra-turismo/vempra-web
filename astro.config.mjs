@@ -2,9 +2,10 @@ import { defineConfig } from 'astro/config';
 import tailwind from "@astrojs/tailwind";
 import icon from "astro-icon";
 import vercel from "@astrojs/vercel";
-import { fileURLToPath } from 'url';
-import path from 'path';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // https://astro.build/config
 export default defineConfig({
@@ -13,7 +14,7 @@ export default defineConfig({
   vite: {
     resolve: {
       alias: {
-        '@': path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'src')
+        '@': path.resolve(__dirname, 'src'),
       }
     }
   },

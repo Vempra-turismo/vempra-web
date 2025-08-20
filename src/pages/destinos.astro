@@ -1,9 +1,19 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import TripCard from '../components/TripCard.astro';
-import db from '../lib/turso';
 
-const { rows: trips } = await db.execute("SELECT * FROM trips ORDER BY id DESC");
+// FORMA CORRECTA: Obtener datos desde nuestra propia API
+let trips = [];
+try {
+	const response = await fetch(new URL('/api/destinos', Astro.url.origin));
+	if (response.ok) {
+		trips = await response.json();
+	} else {
+		console.error("Failed to fetch destinos:", response.status, await response.text());
+	}
+} catch (e) {
+	console.error("Error fetching destinos:", e);
+}
 ---
 <Layout title="Todos los Destinos - Vempra Viajes">
   <section class="py-20 pt-40 bg-[var(--background-color)]">
