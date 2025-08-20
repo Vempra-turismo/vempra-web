@@ -16,7 +16,7 @@ export const GET: APIRoute = async ({ params }) => {
           c.name as country_name, c.url as country_url,
           l.name as locality_name, l.url as locality_url,
           GROUP_CONCAT(DISTINCT d.name) as departure_names,
-          GROUP_CONCAT(tags.name) as tag_names
+          GROUP_CONCAT(DISTINCT tags.name) as tag_names
         FROM trips t
         LEFT JOIN localities l ON t.locality_id = l.id
         LEFT JOIN countries c ON l.country_id = c.id

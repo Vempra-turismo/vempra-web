@@ -116,15 +116,18 @@ if (Astro.request.method === 'POST') {
             const itineraryJson = formData.get('itinerary')?.toString() || '[]';
             let itineraryData = JSON.parse(itineraryJson);
             const dayVideoFiles = formData.getAll('day_videoFile') as File[];
-            let videoFileIndex = 0;
 
-            for (const day of itineraryData) {
-                if (!day.videoUrl && videoFileIndex < dayVideoFiles.length) {
-                    const fileToUpload = dayVideoFiles[videoFileIndex];
-                    if (fileToUpload && fileToUpload.size > 0) {
-                        day.videoUrl = await uploadVideo(fileToUpload);
+            // Itera con un índice para hacer coincidir los días con sus campos de archivo correspondientes
+            for (let i = 0; i < itineraryData.length; i++) {
+                const day = itineraryData[i];
+                const fileToUpload = dayVideoFiles[i];
+
+                // Si se subió un nuevo archivo para este día, procésalo.
+                if (fileToUpload && fileToUpload.size > 0) {
+                    const newVideoUrl = await uploadVideo(fileToUpload);
+                    if (newVideoUrl) {
+                        day.videoUrl = newVideoUrl; // Sobrescribe la URL existente
                     }
-                    videoFileIndex++;
                 }
             }
             const finalItinerary = JSON.stringify(itineraryData);
@@ -133,16 +136,15 @@ if (Astro.request.method === 'POST') {
             const fullItineraryJson = formData.get('full_itinerary')?.toString() || '[]';
             let fullItineraryData = JSON.parse(fullItineraryJson);
             const fullDayImageFiles = formData.getAll('full_day_imageFile') as File[];
-            let imageFileIndex = 0;
 
-            // Asociar imágenes nuevas con los días del itinerario que las necesiten
-            for (const day of fullItineraryData) {
-                if (!day.imageUrl && imageFileIndex < fullDayImageFiles.length) {
-                    const fileToUpload = fullDayImageFiles[imageFileIndex];
-                    if (fileToUpload && fileToUpload.size > 0) {
-                        day.imageUrl = await uploadImage(fileToUpload);
+            for (let i = 0; i < fullItineraryData.length; i++) {
+                const day = fullItineraryData[i];
+                const fileToUpload = fullDayImageFiles[i];
+                if (fileToUpload && fileToUpload.size > 0) {
+                    const newImageUrl = await uploadImage(fileToUpload);
+                    if (newImageUrl) {
+                        day.imageUrl = newImageUrl; // Sobrescribe la URL existente
                     }
-                    imageFileIndex++;
                 }
             }
             const finalFullItinerary = JSON.stringify(fullItineraryData);

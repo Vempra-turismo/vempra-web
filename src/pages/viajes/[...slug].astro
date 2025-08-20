@@ -25,6 +25,11 @@ const galleryImages = [trip.imageUrl, ...additionalImages];
 let itineraryData = [];
 try {
     itineraryData = JSON.parse(trip.itinerary || '[]');
+
+    // Revisa la consola donde ejecutas `npm run dev` para ver estos logs.
+    console.log("Itinerario Interactivo (Raw JSON):", trip.itinerary);
+    console.log("Itinerario Interactivo (Parseado):", itineraryData);
+
 } catch (e) {
     console.error("Itinerario inválido, no es un JSON válido:", trip.itinerary);
 }
@@ -154,17 +159,20 @@ try {
                         <!-- Capa 0: Videos -->
                         <div id="video-container">
                             {itineraryData.map((day, index) => (
-                                <div class:list={["destination-video absolute inset-0 z-0", { 'hidden': index !== 0 }]}>
-                                    <video 
-                                        class="media-element h-full w-full object-cover" 
-                                        loop 
-                                        playsinline 
-                                        autoplay 
-                                        muted 
-                                        src={day.videoUrl} 
-                                        itemtype="video/mp4" 
-                                        data-video-index={index}
-                                    ></video>
+                                <div class:list={["destination-video absolute inset-0 z-0", { 'hidden': index !== 0 }]} id={`video-wrapper-${index}`}>
+                                    {day.videoUrl ? (
+                                        <video 
+                                            class="media-element h-full w-full object-cover" 
+                                            loop 
+                                            playsinline 
+                                            autoplay 
+                                            muted 
+                                            src={day.videoUrl} 
+                                            data-video-index={index}
+                                        ></video>
+                                    ) : (
+                                        <div class="h-full w-full bg-black flex items-center justify-center text-white">Video no disponible para {day.title || `Día ${index + 1}`}</div>
+                                    )}
                                 </div>
                             ))}
                         </div>
@@ -357,11 +365,14 @@ try {
                         descriptionElements[index].classList.toggle('hidden', !isSelected);
                     }
 
-                    if (isSelected) {
-                        media.currentTime = 0;
-                        media.play().catch(error => console.error("Error al reproducir video:", error));
-                    } else {
-                        media.pause();
+                    // Ahora solo manejamos elementos <video>
+                    if (media.tagName === 'VIDEO') {
+                        if (isSelected) {
+                            media.currentTime = 0;
+                            media.play().catch(error => console.error("Error al reproducir video:", error));
+                        } else {
+                            media.pause();
+                        }
                     }
                 });
             }
