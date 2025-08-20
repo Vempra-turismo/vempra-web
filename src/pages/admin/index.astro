@@ -1,7 +1,8 @@
 ---
 import AdminLayout from '@/layouts/AdminLayout.astro';
 import DragHandle from '@/components/DragHandle.astro';
-import db from '@/lib/turso'; // <-- CORRECCIÓN 1: La ruta y el tipo de importación eran incorrectos.
+import db from '@/lib/turso';
+import { v2 as cloudinary } from 'cloudinary';
 import type { FormMessage } from '@/types';
 
 // --- Proteger la página ---
@@ -31,6 +32,14 @@ if (errorMessage) {
     formMessage = { type: 'error', text: errorMap[errorMessage] || decodeURIComponent(errorMessage) };
 }
 
+// --- Configuración de Cloudinary ---
+cloudinary.config({ 
+  cloud_name: import.meta.env.CLOUDINARY_CLOUD_NAME, 
+  api_key: import.meta.env.CLOUDINARY_API_KEY, 
+  api_secret: import.meta.env.CLOUDINARY_API_SECRET,
+  secure: true
+});
+
 // --- INICIO: LÓGICA COMPLETA DE PROCESAMIENTO DE FORMULARIOS (POST) ---
 if (Astro.request.method === 'POST') {
     // Autenticación: Asegurarse de que el usuario está logueado
@@ -47,18 +56,26 @@ if (Astro.request.method === 'POST') {
         try {
             const tripId = formData.get('id')?.toString(); // Será undefined para viajes nuevos
 
-            // --- 1. Lógica para subir imágenes (NECESITA IMPLEMENTACIÓN) ---
-            // Esta función es un placeholder. Debes implementar tu propia lógica para subir
-            // imágenes a un servicio como Cloudinary, S3, o a tu propio servidor.
+            // --- 1. Lógica para subir imágenes a Cloudinary ---
             const uploadImage = async (file: File): Promise<string | null> => {
-                if (file && file.size > 0) {
-                    // EJEMPLO:
-                    // const response = await uploadToYourCloudService(file);
-                    // return response.url;
-                    console.warn(`ADVERTENCIA: La subida de imágenes no está implementada. Usando placeholder para ${file.name}.`);
-                    return `/uploads/placeholder-${file.name}`; // URL de placeholder
-                }
-                return null;
+                if (!file || file.size === 0) return null;
+
+                const arrayBuffer = await file.arrayBuffer();
+                const buffer = Buffer.from(arrayBuffer);
+
+                return new Promise((resolve, reject) => {
+                    cloudinary.uploader.upload_stream({
+                        // Opciones de Cloudinary, como la carpeta donde guardar
+                        folder: 'vempra_viajes',
+                        // Podrías añadir optimizaciones aquí
+                    }, (error, result) => {
+                        if (error) {
+                            console.error('Error al subir a Cloudinary:', error);
+                            return reject(new Error('No se pudo subir la imagen.'));
+                        }
+                        resolve(result.secure_url);
+                    }).end(buffer);
+                });
             };
 
             // Imagen principal del viaje
