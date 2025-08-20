@@ -83,6 +83,26 @@ if (Astro.request.method === 'POST') {
                 });
             };
 
+            const uploadVideo = async (file: File): Promise<string | null> => {
+                if (!file || file.size === 0) return null;
+
+                const arrayBuffer = await file.arrayBuffer();
+                const buffer = Buffer.from(arrayBuffer);
+
+                return new Promise((resolve, reject) => {
+                    cloudinary.uploader.upload_stream({
+                        resource_type: 'video',
+                        folder: 'vempra_viajes_videos',
+                    }, (error, result) => {
+                        if (error || !result) {
+                            console.error('Error al subir video a Cloudinary:', error || 'El resultado de la subida está vacío.');
+                            return reject(new Error('Fallo en la subida de video a Cloudinary.'));
+                        }
+                        resolve(result.secure_url);
+                    }).end(buffer);
+                });
+            };
+
             // Imagen principal del viaje
             let imageUrl = formData.get('imageUrl')?.toString() || null;
             const newImageFile = formData.get('imageFile') as File;
@@ -94,6 +114,20 @@ if (Astro.request.method === 'POST') {
             // --- 2. Procesar Itinerarios (LA CLAVE DEL PROBLEMA) ---
             // Itinerario Interactivo (videos)
             const itineraryJson = formData.get('itinerary')?.toString() || '[]';
+            let itineraryData = JSON.parse(itineraryJson);
+            const dayVideoFiles = formData.getAll('day_videoFile') as File[];
+            let videoFileIndex = 0;
+
+            for (const day of itineraryData) {
+                if (!day.videoUrl && videoFileIndex < dayVideoFiles.length) {
+                    const fileToUpload = dayVideoFiles[videoFileIndex];
+                    if (fileToUpload && fileToUpload.size > 0) {
+                        day.videoUrl = await uploadVideo(fileToUpload);
+                    }
+                    videoFileIndex++;
+                }
+            }
+            const finalItinerary = JSON.stringify(itineraryData);
 
             // Itinerario Detallado (imágenes)
             const fullItineraryJson = formData.get('full_itinerary')?.toString() || '[]';
@@ -129,7 +163,7 @@ if (Astro.request.method === 'POST') {
                 season_year: formData.get('season_year') ? Number(formData.get('season_year')) : null,
                 hotels_info: formData.get('hotels_info')?.toString() || '',
                 flights_info: formData.get('flights_info')?.toString() || '',
-                itinerary: itineraryJson,
+                itinerary: finalItinerary, // Este es el JSON actualizado con URLs de video
                 full_itinerary: finalFullItinerary, // Este es el JSON actualizado
             };
 
@@ -520,16 +554,21 @@ try {
              <!-- Plantilla para un nuevo día (oculta) -->
              <template id="itinerary-day-template">
                  <div class="itinerary-day-item bg-white p-4 rounded-lg shadow-sm border relative">
-                    <div class="drag-handle absolute top-1/2 -left-3 -translate-y-1/2 cursor-grab text-gray-400 hover:text-gray-600 p-1"><DragHandle /></div>
+                     <div class="drag-handle absolute top-1/2 -left-3 -translate-y-1/2 cursor-grab text-gray-400 hover:text-gray-600 p-1"><DragHandle /></div>
                      <div class="pl-6">
+                        <input type="hidden" name="day_existing_videoUrl" value="">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700">Título del Día (ej: Arequipa)</label>
                                 <input type="text" name="day_title" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-50" required>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700">URL del Video</label>
-                                <input type="url" name="day_videoUrl" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm bg-gray-50" placeholder="https://.../video.mp4">
+                                <label class="block text-sm font-medium text-gray-700">Video del Día</label>
+                                <input type="file" name="day_videoFile" accept="video/*" class="mt-1 block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100">
+                                <div class="current-video-preview mt-2" style="display: none;">
+                                    <p class="text-sm text-gray-600">Video actual:</p>
+                                    <video src="" controls class="mt-1 h-24 w-auto rounded-lg bg-gray-200"></video>
+                                </div>
                             </div>
                             <div class="md:col-span-2">
                                 <label class="block text-sm font-medium text-gray-700">Slogan / Frase principal</label>
@@ -933,12 +972,23 @@ try {
       dayElement.querySelector('[name="day_title"]').value = dayData.title || '';
       dayElement.querySelector('[name="day_slogan"]').value = dayData.slogan || '';
       dayElement.querySelector('[name="day_points"]').value = dayData.points || '';
-      dayElement.querySelector('[name="day_videoUrl"]').value = dayData.videoUrl || '';
+
+      const existingVideoUrlInput = dayElement.querySelector('[name="day_existing_videoUrl"]');
+      existingVideoUrlInput.value = dayData.videoUrl || '';
+
+      const previewContainer = dayElement.querySelector('.current-video-preview');
+      const previewVideo = previewContainer.querySelector('video');
+
+      if (dayData.videoUrl) {
+          previewVideo.src = dayData.videoUrl;
+          previewContainer.style.display = 'block';
+      } else {
+          previewContainer.style.display = 'none';
+      }
 
       dayElement.querySelector('.remove-day-btn').addEventListener('click', () => {
           dayElement.remove();
       });
-
       container.appendChild(clone);
   }
 
@@ -1036,9 +1086,9 @@ try {
         const serializeItinerary = () => {
             const days = Array.from(itineraryContainer.querySelectorAll('.itinerary-day-item')).map(item => ({
                 title: item.querySelector('[name="day_title"]').value,
-                videoUrl: item.querySelector('[name="day_videoUrl"]').value,
                 slogan: item.querySelector('[name="day_slogan"]').value,
                 points: item.querySelector('[name="day_points"]').value,
+                videoUrl: item.querySelector('[name="day_existing_videoUrl"]').value,
             }));
             itineraryJsonInput.value = JSON.stringify(days);
         };
