@@ -33,6 +33,11 @@ if (errorMessage) {
 }
 
 // --- Configuración de Cloudinary ---
+// DEBUG: Comprobar si las variables de entorno se están cargando.
+// Revisa la consola donde ejecutas `npm run dev` para ver este mensaje.
+console.log('Cloudinary Cloud Name:', import.meta.env.CLOUDINARY_CLOUD_NAME ? 'Cargado ✅' : 'NO CARGADO ❌');
+console.log('Cloudinary API Key:', import.meta.env.CLOUDINARY_API_KEY ? 'Cargado ✅' : 'NO CARGADO ❌');
+
 cloudinary.config({ 
   cloud_name: import.meta.env.CLOUDINARY_CLOUD_NAME, 
   api_key: import.meta.env.CLOUDINARY_API_KEY, 
@@ -69,9 +74,9 @@ if (Astro.request.method === 'POST') {
                         folder: 'vempra_viajes',
                         // Podrías añadir optimizaciones aquí
                     }, (error, result) => {
-                        if (error) {
-                            console.error('Error al subir a Cloudinary:', error);
-                            return reject(new Error('No se pudo subir la imagen.'));
+                        if (error || !result) {
+                            console.error('Error al subir a Cloudinary:', error || 'El resultado de la subida está vacío.');
+                            return reject(new Error('Fallo en la subida de imagen a Cloudinary. Revisa las credenciales y la consola del servidor.'));
                         }
                         resolve(result.secure_url);
                     }).end(buffer);
